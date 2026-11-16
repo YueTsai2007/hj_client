@@ -1,2 +1,0 @@
-/usr/bin/ar qc librm2027_broker.a CMakeFiles/rm2027_broker.dir/src/broker/mqtt_broker.cpp.o
-/usr/bin/ranlib librm2027_broker.a

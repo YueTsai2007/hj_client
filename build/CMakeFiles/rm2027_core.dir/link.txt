@@ -1,2 +1,0 @@
-/usr/bin/ar qc librm2027_core.a CMakeFiles/rm2027_core.dir/src/common/log.cpp.o CMakeFiles/rm2027_core.dir/src/protocol/codec.cpp.o CMakeFiles/rm2027_proto.dir/rm2027_client_up.pb.cc.o CMakeFiles/rm2027_proto.dir/rm2027_client_down.pb.cc.o CMakeFiles/rm2027_proto.dir/rm2027_radar_flat.pb.cc.o CMakeFiles/rm2027_proto.dir/rm2027_scenario.pb.cc.o
-/usr/bin/ranlib librm2027_core.a

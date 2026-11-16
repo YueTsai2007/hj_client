@@ -1,2 +1,0 @@
-/usr/bin/ar qc librm2027_api.a CMakeFiles/rm2027_api.dir/src/api/messages.cpp.o CMakeFiles/rm2027_api.dir/src/api/registry.cpp.o CMakeFiles/rm2027_api.dir/src/api/scenario.cpp.o CMakeFiles/rm2027_api.dir/src/api/validate.cpp.o CMakeFiles/rm2027_api.dir/src/api/wire_format.cpp.o
-/usr/bin/ranlib librm2027_api.a
