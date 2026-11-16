@@ -1,0 +1,2 @@
+/usr/bin/ar qc librm2027_video.a CMakeFiles/rm2027_video.dir/src/video/udp_header.cpp.o CMakeFiles/rm2027_video.dir/src/video/video_types.cpp.o CMakeFiles/rm2027_video.dir/src/video/hevc_encoder.cpp.o CMakeFiles/rm2027_video.dir/src/video/video_decoder.cpp.o CMakeFiles/rm2027_video.dir/src/video/video_sender.cpp.o CMakeFiles/rm2027_video.dir/src/video/video_receiver.cpp.o
+/usr/bin/ranlib librm2027_video.a

@@ -1,0 +1,158 @@
+[
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_proto.dir/rm2027_client_up.pb.cc.o -c /home/martian/game_27/27/hj_client/build/rm2027_client_up.pb.cc",
+  "file": "/home/martian/game_27/27/hj_client/build/rm2027_client_up.pb.cc",
+  "output": "CMakeFiles/rm2027_proto.dir/rm2027_client_up.pb.cc.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_proto.dir/rm2027_client_down.pb.cc.o -c /home/martian/game_27/27/hj_client/build/rm2027_client_down.pb.cc",
+  "file": "/home/martian/game_27/27/hj_client/build/rm2027_client_down.pb.cc",
+  "output": "CMakeFiles/rm2027_proto.dir/rm2027_client_down.pb.cc.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_proto.dir/rm2027_radar_flat.pb.cc.o -c /home/martian/game_27/27/hj_client/build/rm2027_radar_flat.pb.cc",
+  "file": "/home/martian/game_27/27/hj_client/build/rm2027_radar_flat.pb.cc",
+  "output": "CMakeFiles/rm2027_proto.dir/rm2027_radar_flat.pb.cc.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_proto.dir/rm2027_scenario.pb.cc.o -c /home/martian/game_27/27/hj_client/build/rm2027_scenario.pb.cc",
+  "file": "/home/martian/game_27/27/hj_client/build/rm2027_scenario.pb.cc",
+  "output": "CMakeFiles/rm2027_proto.dir/rm2027_scenario.pb.cc.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_core.dir/src/common/log.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/common/log.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/common/log.cpp",
+  "output": "CMakeFiles/rm2027_core.dir/src/common/log.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_core.dir/src/protocol/codec.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/protocol/codec.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/protocol/codec.cpp",
+  "output": "CMakeFiles/rm2027_core.dir/src/protocol/codec.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_api.dir/src/api/messages.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/messages.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/messages.cpp",
+  "output": "CMakeFiles/rm2027_api.dir/src/api/messages.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_api.dir/src/api/registry.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/registry.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/registry.cpp",
+  "output": "CMakeFiles/rm2027_api.dir/src/api/registry.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_api.dir/src/api/scenario.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/scenario.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/scenario.cpp",
+  "output": "CMakeFiles/rm2027_api.dir/src/api/scenario.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_api.dir/src/api/validate.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/validate.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/validate.cpp",
+  "output": "CMakeFiles/rm2027_api.dir/src/api/validate.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_api.dir/src/api/wire_format.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/wire_format.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/wire_format.cpp",
+  "output": "CMakeFiles/rm2027_api.dir/src/api/wire_format.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_broker.dir/src/broker/mqtt_broker.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/broker/mqtt_broker.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/broker/mqtt_broker.cpp",
+  "output": "CMakeFiles/rm2027_broker.dir/src/broker/mqtt_broker.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_api_server.dir/src/api/server.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/server.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/server.cpp",
+  "output": "CMakeFiles/rm2027_api_server.dir/src/api/server.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_video.dir/src/video/udp_header.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/udp_header.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/udp_header.cpp",
+  "output": "CMakeFiles/rm2027_video.dir/src/video/udp_header.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_video.dir/src/video/video_types.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/video_types.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/video_types.cpp",
+  "output": "CMakeFiles/rm2027_video.dir/src/video/video_types.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_video.dir/src/video/hevc_encoder.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/hevc_encoder.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/hevc_encoder.cpp",
+  "output": "CMakeFiles/rm2027_video.dir/src/video/hevc_encoder.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_video.dir/src/video/video_decoder.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/video_decoder.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/video_decoder.cpp",
+  "output": "CMakeFiles/rm2027_video.dir/src/video/video_decoder.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_video.dir/src/video/video_sender.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/video_sender.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/video_sender.cpp",
+  "output": "CMakeFiles/rm2027_video.dir/src/video/video_sender.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_video.dir/src/video/video_receiver.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/video_receiver.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/video_receiver.cpp",
+  "output": "CMakeFiles/rm2027_video.dir/src/video/video_receiver.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIE -o CMakeFiles/rm_server.dir/src/server/main.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/server/main.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/server/main.cpp",
+  "output": "CMakeFiles/rm_server.dir/src/server/main.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIE -o CMakeFiles/rm_video_tx.dir/src/video/main_tx.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/main_tx.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/main_tx.cpp",
+  "output": "CMakeFiles/rm_video_tx.dir/src/video/main_tx.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++  -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIE -o CMakeFiles/rm_video_rx.dir/src/video/main_rx.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/main_rx.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/video/main_rx.cpp",
+  "output": "CMakeFiles/rm_video_rx.dir/src/video/main_rx.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++ -DOPENSSL=1 -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027_api_client.dir/src/api/client.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/client.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/api/client.cpp",
+  "output": "CMakeFiles/rm2027_api_client.dir/src/api/client.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++ -DOPENSSL=1 -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIE -o CMakeFiles/rm_client.dir/src/client/main.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/client/main.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/client/main.cpp",
+  "output": "CMakeFiles/rm_client.dir/src/client/main.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++ -DOPENSSL=1 -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIE -o CMakeFiles/rm_api_demo.dir/examples/api_demo.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/examples/api_demo.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/examples/api_demo.cpp",
+  "output": "CMakeFiles/rm_api_demo.dir/examples/api_demo.cpp.o"
+},
+{
+  "directory": "/home/martian/game_27/27/hj_client/build",
+  "command": "/usr/bin/g++ -DOPENSSL=1 -Drm2027c_EXPORTS -I/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/include -I/home/martian/game_27/27/hj_client/build -g -std=gnu++17 -fPIC -o CMakeFiles/rm2027c.dir/src/capi/rm2027_c.cpp.o -c /home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/capi/rm2027_c.cpp",
+  "file": "/home/martian/game_27/27/hj_client/RM2027-CustomTerminal-CommunicationBackend/src/capi/rm2027_c.cpp",
+  "output": "CMakeFiles/rm2027c.dir/src/capi/rm2027_c.cpp.o"
+}
+]

@@ -1,0 +1,2 @@
+/usr/bin/ar qc librm2027_api_client.a CMakeFiles/rm2027_api_client.dir/src/api/client.cpp.o
+/usr/bin/ranlib librm2027_api_client.a
