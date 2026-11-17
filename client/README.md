@@ -19,4 +19,11 @@ cmake --build build/hj-client --target HJ_Client -j 4
 
 地图下方可以选择雷达线格式：默认嵌套（nested），也可选择平铺（flat）。接收端格式必须与发送端一致；切换后须等待下一条雷达消息，旧数据显示会被清除。实际赛场使用的格式仍需联调确认。
 
-
+启动后端后台
+```python
+python3 python/run_server.py --host 127.0.0.1 --port 3333
+```
+启动客户端
+```bash
+./build/hj-client/HJ_Client --host 127.0.0.1 --port 3333 --id 3 --video-port 3334
+```
