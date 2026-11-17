@@ -5,7 +5,7 @@
 #include <QPolygonF>
 #include <QRadialGradient>
 
-Map::Map(QWidget *parent) : QWidget(parent) { setMinimumSize(400, 200); }
+Map::Map(QWidget *parent) : QWidget(parent) { setMinimumSize(220, 140); }
 void Map::flip() { flipped_ = !flipped_; update(); }
 void Map::paintEvent(QPaintEvent *) {
     QPainter p(this);
