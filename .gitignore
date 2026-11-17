@@ -1,1 +1,32 @@
 /build/
+/.vscode/
+
+# JetBrains IDEs (CLion, IntelliJ IDEA, etc.)
+/.idea/
+/cmake-build-*/
+
+# Qt Creator
+*.user
+*.user.*
+*.autosave
+.qtc_clangd/
+
+# Visual Studio
+/.vs/
+*.suo
+*.VC.db
+*.VC.opendb
+
+# Eclipse
+/.project
+/.cproject
+/.settings/
+
+# Code::Blocks
+*.layout
+*.depend
+
+# Editor temporary files
+*.swp
+*.swo
+*~
