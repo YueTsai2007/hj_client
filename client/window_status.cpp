@@ -1,11 +1,14 @@
 #include "window.h"
+#include "map.h"
 #include "window_helpers.h"
+#include "rm2027_client_down.pb.h"
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QListWidget>
 #include <QProgressBar>
 #include <QVBoxLayout>
 #include <QScrollBar>
+#include <QStyle>
 #include <QJsonArray>
 #include <QJsonDocument>
 
@@ -19,48 +22,63 @@ QString robotName(int id) {
     }
 }
 
+void updateRobotCard(QWidget *row, const QString &color, const QString &status, const QString &value, int percentage);
+
 QFrame *robotCard(QListWidget *list, int id, const QString &color, const QString &status, const QString &value, int percentage = -1) {
     auto *row = new QFrame;
     row->setObjectName("robotCard");
-    row->setStyleSheet(QStringLiteral("QFrame#robotCard { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 rgba(34,47,66,230), stop:1 rgba(16,25,37,230)); border: 1px solid rgba(232,163,61,60); border-left: 3px solid %1; border-radius: 9px; }").arg(color));
+    row->setStyleSheet(QStringLiteral(
+        "QFrame#robotCard { background:rgba(29,38,50,145); border:1px solid #303d4e; border-radius:4px; }"));
     auto *layout = new QVBoxLayout(row);
-    layout->setContentsMargins(10, 8, 12, 8);
-    layout->setSpacing(5);
+    layout->setContentsMargins(7, 3, 7, 3);
+    layout->setSpacing(3);
     auto *top = new QHBoxLayout;
-    top->setSpacing(10);
-    auto *badge = label(QString::number(id), "robotNum");
-    badge->setAlignment(Qt::AlignCenter);
-    badge->setFixedSize(30, 30);
-    auto *name = label(robotName(id), "robotName");
-    auto *state = label(status, "robotState");
-    state->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    top->addWidget(badge); top->addWidget(name); top->addStretch(); top->addWidget(state);
+    top->setSpacing(4);
+    top->addWidget(label(QStringLiteral("%1 %2").arg(id).arg(robotName(id)), "robotName"));
+    top->addStretch();
+    auto *health = label(value, "robotValue");
+    top->addWidget(health);
     layout->addLayout(top);
-    layout->addWidget(label(value, "robotValue"));
-    {
-        auto *bar = new QProgressBar;
-        bar->setRange(0, 1000); bar->setValue(qMax(0, percentage));
-        bar->setTextVisible(false); bar->setFixedHeight(7);
-        bar->setStyleSheet(QStringLiteral("QProgressBar {background:rgba(255,255,255,22);border:0;border-radius:3px;} QProgressBar::chunk {background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 %2,stop:1 %1);border-radius:3px;}")
-                               .arg(color, QColor(color).darker(170).name()));
-        layout->addWidget(bar);
-    }
+    auto *bar = new QProgressBar;
+    bar->setRange(0, 1000);
+    bar->setTextVisible(false);
+    bar->setFixedHeight(5);
+    layout->addWidget(bar);
+    updateRobotCard(row, color, status, value, percentage);
     auto *item = new QListWidgetItem(list);
-    item->setSizeHint(row->sizeHint());
+    item->setSizeHint(QSize(120, 38));
     list->setItemWidget(item, row);
     return row;
 }
 void updateRobotCard(QWidget *row, const QString &color, const QString &status, const QString &value, int percentage) {
-    row->findChild<QLabel *>("robotState")->setText(status);
-    row->findChild<QLabel *>("robotValue")->setText(value);
+    auto *health = row->findChild<QLabel *>("robotValue");
+    health->setText(value == QStringLiteral("-- HP") ? status : value);
+    row->setToolTip(status);
+    health->setAccessibleDescription(status);
     auto *bar = row->findChild<QProgressBar *>();
     const QString style = QStringLiteral("QProgressBar {background:#263746;border:0;border-radius:3px;} QProgressBar::chunk {background:%1;}").arg(color);
     if (bar->styleSheet() != style) bar->setStyleSheet(style);
     bar->setValue(qMax(0, percentage));
+    bar->setVisible(percentage >= 0);
 }
 } // namespace
 
+void Window::setBaseHealth(QLabel *label, QProgressBar *bar, const QString &health) {
+    bool currentOk = false;
+    const auto current = health.toUInt(&currentOk);
+    const int configuredMaximum = qEnvironmentVariableIntValue("HJ_BASE_MAX_HP");
+    const int maximum = configuredMaximum > 0 ? configuredMaximum
+        : demoMode_ ? 5000 : 0;
+    label->setText(health);
+    const bool valid = currentOk && maximum > 0 && current <= static_cast<uint>(maximum);
+    bar->setFormat(health);
+    if (valid) bar->setValue(static_cast<int>(quint64(current) * 1000 / maximum));
+    else bar->reset();
+    bar->update();
+}
+
 void Window::markStale() {
+    map_->expireRobotPositions();
     bool maxExpired = false;
     for (auto &timestamp : maxHealthAt_) {
         if (timestamp >= 0 && maxClock_.elapsed() - timestamp > 3000) { timestamp = -1; maxExpired = true; }
@@ -70,7 +88,8 @@ void Window::markStale() {
         dataStatus_->setText(QStringLiteral("比赛数据已过期")); scoreRed_->setText("--"); scoreBlue_->setText("--"); clock_->setText("--:--"); round_->setText(QStringLiteral("比赛状态已过期")); gameAge_.invalidate();
     }
     if (unitAge_.isValid() && unitAge_.elapsed() > 3000) {
-        base_->setText(QStringLiteral("基地血量　数据已过期")); damage_->setText(QStringLiteral("累计伤害　数据已过期")); health_.clear(); showHealthPlaceholder(QStringLiteral("数据已过期")); unitAge_.invalidate();
+        setBaseHealth(baseRed_, baseRedBar_, QStringLiteral("--"));
+        setBaseHealth(baseBlue_, baseBlueBar_, QStringLiteral("--")); damage_->setText(QStringLiteral("累计伤害　数据已过期")); health_.clear(); showHealthPlaceholder(QStringLiteral("数据已过期")); unitAge_.invalidate();
     }
     if (economyAge_.isValid() && economyAge_.elapsed() > 3000) { economy_->setText(QStringLiteral("经济数据已过期")); economyAge_.invalidate(); }
     if (positionAge_.isValid() && positionAge_.elapsed() > 3000) { position_->setText(QStringLiteral("机器人坐标：数据已过期")); positionAge_.invalidate(); }
@@ -91,11 +110,11 @@ void Window::showHealth(const std::vector<uint32_t> &health) {
         auto *list = i < 4 ? ally_ : enemy_;
         const auto current = health[static_cast<size_t>(i)];
         const auto maximum = maxHealth_[static_cast<size_t>(i)];
-        const bool valid = maxHealthAt_[static_cast<size_t>(i)] >= 0 && maximum > 0 && current <= maximum;
+        const bool valid = ownSide_ >= 0 && maxHealthAt_[static_cast<size_t>(i)] >= 0 && maximum > 0 && current <= maximum;
         const int percentage = valid ? static_cast<int>((static_cast<uint64_t>(current) * 1000) / maximum) : -1;
         const QString status = valid ? (current == 0 ? QStringLiteral("血量为零") : percentage <= 300 ? QStringLiteral("低血量") : QStringLiteral("血量正常"))
-            : maximum > 0 && maxHealthAt_[static_cast<size_t>(i)] >= 0 ? QStringLiteral("上限异常") : QStringLiteral("上限未知");
-        const QString value = valid ? QStringLiteral("%1 / %2 HP  ·  %3%").arg(current).arg(maximum).arg(percentage / 10)
+            : current == 0 ? QStringLiteral("血量为零") : maximum > 0 && maxHealthAt_[static_cast<size_t>(i)] >= 0 ? QStringLiteral("上限异常") : QStringLiteral("上限未知");
+        const QString value = valid ? QStringLiteral("%1 / %2").arg(current).arg(maximum)
                                     : QStringLiteral("%1 HP").arg(current);
         const QString color = valid && percentage <= 300 ? QStringLiteral("#ffc46a") : teamColor(i < 4, ownSide_);
         updateRobotCard(list->itemWidget(list->item(i % 4)), color, status, value, percentage);
@@ -127,7 +146,9 @@ void Window::updateAlert() {
         else if (health_.size() != 8) issues << QStringLiteral("机器人血量数据长度异常");
     }
     if (video_ && !video_->running()) issues << QStringLiteral("图传接收器未启动");
-    else if (!frameAge_.isValid()) issues << QStringLiteral("图传尚无有效画面");
+    else if (!frameAge_.isValid()) issues.prepend(gotVideo_ ? QStringLiteral("图传已中断") : QStringLiteral("等待图传首帧"));
+    if (localStatus_[0]->text() == QLatin1String("0"))
+        issues << QStringLiteral("本机血量为零");
     const QString text = issues.isEmpty() ? QStringLiteral("●  通信与图传数据已接收") : QStringLiteral("●  ") + issues.join(QStringLiteral("   ·   "));
     if (alert_->text() != text) alert_->setText(text);
     if (alert_->property("ok").toBool() != issues.isEmpty()) {
@@ -137,17 +158,17 @@ void Window::updateAlert() {
 }
 
 void Window::refreshSummary() {
+    const auto setLocal = [this](int index, const QString &text) {
+        if (localStatus_[index]->text() != text) localStatus_[index]->setText(text);
+    };
     if (!connected_) {
+        for (int i = 0; i < 4; ++i) setLocal(i, QStringLiteral("断开"));
         const QString text = QStringLiteral("连接断开：机器人和场地状态不可用");
         if (situation_->count() != 1 || situation_->item(0)->text() != text) { situation_->clear(); situation_->addItem(text); }
         return;
     }
     struct SummaryField { const char *topic; const char *field; const char *title; bool triggered; };
     static const SummaryField fields[] = {
-        {"RobotDynamicStatus", "currentHealth", "本机血量", false},
-        {"RobotDynamicStatus", "currentHeat", "当前热量", false},
-        {"RobotDynamicStatus", "remainingAmmo", "剩余弹量", false},
-        {"RobotRespawnStatus", "currentRespawnProgress", "复活进度（原始值）", false},
         {"GlobalSpecialMechanism", "mechanismTimeSec", "阵地计时（秒，保留正负）", false},
         {"TechCoreMotionStateSync", "basicState", "科技核心状态（原始值）", false},
         {"RuneStatusSync", "runeStatus", "能量机关状态（原始值）", false},
@@ -161,6 +182,48 @@ void Window::refreshSummary() {
         std::lock_guard<std::mutex> lock(recordsMutex_);
         snapshot = records_;
     }
+    const auto renderLocal = [&](const char *topic, int first, int count) {
+        const auto it = snapshot.find(topic);
+        const auto unavailable = [&](const QString &text) {
+            for (int i = first; i < first + count; ++i) setLocal(i, text);
+        };
+        if (it == snapshot.end() || it->second.receivedTick < connectedAtTick_) {
+            unavailable(QStringLiteral("等待数据"));
+            return;
+        }
+        if (monotonicMs() - it->second.receivedTick > 3000) {
+            unavailable(QStringLiteral("数据过期"));
+            return;
+        }
+        if (!it->second.error.empty()) {
+            unavailable(QStringLiteral("数据异常"));
+            return;
+        }
+        const auto *message = it->second.message.get();
+        if (const auto *dynamic = dynamic_cast<const rm_client_down::RobotDynamicStatus *>(message)) {
+            setLocal(0, dynamic->has_current_health() ? QString::number(dynamic->current_health()) : QStringLiteral("--"));
+            setLocal(1, dynamic->has_remaining_ammo() ? QString::number(dynamic->remaining_ammo()) : QStringLiteral("--"));
+            setLocal(2, dynamic->has_current_heat() ? QString::number(dynamic->current_heat()) : QStringLiteral("--"));
+            return;
+        }
+        if (const auto *respawn = dynamic_cast<const rm_client_down::RobotRespawnStatus *>(message)) {
+            if (!respawn->has_is_pending_respawn()) {
+                setLocal(3, QStringLiteral("--"));
+            } else if (!respawn->is_pending_respawn()) {
+                setLocal(3, QStringLiteral("无需复活"));
+            } else if (respawn->has_current_respawn_progress() && respawn->total_respawn_progress() > 0) {
+                setLocal(3, QStringLiteral("%1 / %2")
+                    .arg(respawn->current_respawn_progress()).arg(respawn->total_respawn_progress()));
+            } else {
+                setLocal(3, QStringLiteral("等待复活"));
+            }
+            return;
+        }
+        unavailable(QStringLiteral("数据异常"));
+    };
+    renderLocal("RobotDynamicStatus", 0, 3);
+    renderLocal("RobotRespawnStatus", 3, 1);
+    if (!details_ || !details_->isVisible()) return;
     QStringList lines;
     const auto now = monotonicMs();
     for (const auto &field : fields) {
@@ -178,8 +241,7 @@ void Window::refreshSummary() {
             lines << QString::fromUtf8(field.title) + QStringLiteral("：数据已过期");
             continue;
         }
-        const auto doc = QJsonDocument::fromJson(QByteArray::fromStdString(it->second.json));
-        const auto value = doc.object().value(QLatin1String(field.field));
+        const auto value = messageFields(it->second).value(QLatin1String(field.field));
         QString text;
         if (value.isArray()) text = QString::fromUtf8(QJsonDocument(value.toArray()).toJson(QJsonDocument::Compact));
         else if (value.isString()) text = value.toString();

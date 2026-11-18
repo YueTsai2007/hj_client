@@ -1,7 +1,10 @@
 #include "window.h"
 #include "window_helpers.h"
 #include <QDateTime>
-#include <QDialog>
+#include <QComboBox>
+#include <QPushButton>
+#include <QHBoxLayout>
+#include "rm2027/api/wire_format.h"
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QJsonDocument>
@@ -31,17 +34,38 @@ QString topicTitle(const QString &name) {
 } // namespace
 
 void Window::showDetails() {
-    if (details_) {
-        details_->show(); details_->raise(); details_->activateWindow();
-        return;
-    }
-    details_ = new QDialog(this);
-    details_->setWindowTitle(QStringLiteral("下行消息详情"));
-    details_->resize(950, 650);
+    detailsDock_->setVisible(detailsDock_->isHidden());
+    refreshDetails();
+}
+
+void Window::setupDetails() {
+    details_ = new QWidget;
     auto *layout = new QVBoxLayout(details_);
     auto *hint = label(QStringLiteral("显示最近一条原始消息中实际提供的字段；未列出的可选字段表示未提供。事件型消息仅在触发时更新；二进制字段使用 Base64。"));
     hint->setWordWrap(true);
+    auto *actions = new QHBoxLayout;
+    actions->addStretch();
+    actions->addWidget(label(QStringLiteral("雷达线格式"), "caption"));
+    auto *format = new QComboBox;
+    format->addItems({QStringLiteral("嵌套"), QStringLiteral("平铺")});
+    format->setCurrentIndex(rm2027::radarWireFormat() == rm2027::RadarWireFormat::FlatPackedUint32 ? 1 : 0);
+    format->setToolTip(QStringLiteral("与发送端的线格式保持一致"));
+    actions->addWidget(format);
+    connect(format, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        rm2027::setRadarWireFormat(index == 0 ? rm2027::RadarWireFormat::NestedMessage : rm2027::RadarWireFormat::FlatPackedUint32);
+        radarAge_.invalidate();
+        radar_->setText(QStringLiteral("雷达格式已切换，等待新数据"));
+        std::lock_guard<std::mutex> lock(recordsMutex_);
+        records_.erase("RadarInfoToClient");
+    });
+    layout->addLayout(actions);
     layout->addWidget(hint);
+    layout->addWidget(position_);
+    layout->addWidget(radar_);
+    layout->addWidget(metricsPage_, 1);
+    position_->show();
+    radar_->show();
+    metricsPage_->show();
     auto *split = new QSplitter(details_);
     topics_ = new QListWidget(split);
     messageDetails_ = new QPlainTextEdit(split);
@@ -49,7 +73,7 @@ void Window::showDetails() {
     messageDetails_->setLineWrapMode(QPlainTextEdit::NoWrap);
     split->addWidget(topics_); split->addWidget(messageDetails_);
     split->setStretchFactor(0, 1); split->setStretchFactor(1, 2);
-    layout->addWidget(split);
+    layout->addWidget(split, 2);
     for (const auto &name : rm2027::downlinkNames()) {
         auto *item = new QListWidgetItem(QString::fromStdString(name), topics_);
         item->setData(Qt::UserRole, QString::fromStdString(name));
@@ -59,7 +83,8 @@ void Window::showDetails() {
     connect(refreshTimer, &QTimer::timeout, this, [this] { if (details_->isVisible()) refreshDetails(); });
     refreshTimer->start(500);
     topics_->setCurrentRow(0);
-    details_->show();
+    detailsDock_ = addModule("details", QStringLiteral("消息详情"), details_);
+    detailsDock_->hide();
 }
 
 void Window::refreshDetails() {
@@ -79,7 +104,8 @@ void Window::refreshDetails() {
         const auto topic = item->data(Qt::UserRole).toString().toStdString();
         const auto it = snapshot.find(topic);
         const auto topicName = QString::fromStdString(topic);
-        item->setText(topicTitle(topicName) + QStringLiteral(" / ") + topicName + (it == snapshot.end() ? QStringLiteral("  · 等待") : QStringLiteral("  · %1 条").arg(it->second.count)));
+        const QString title = topicTitle(topicName) + QStringLiteral(" / ") + topicName + (it == snapshot.end() ? QStringLiteral("  · 等待") : QStringLiteral("  · %1 条").arg(it->second.count));
+        if (item->text() != title) item->setText(title);
     }
     const auto it = snapshot.find(name);
     if (it != snapshot.end()) { record = it->second; found = true; }
@@ -91,11 +117,7 @@ void Window::refreshDetails() {
         messageDetails_->setPlainText(QStringLiteral("原始字段解析失败：") + QString::fromStdString(record.error));
         return;
     }
-    QJsonParseError error;
-    const auto doc = QJsonDocument::fromJson(QByteArray::fromStdString(record.json), &error);
-    const QString payload = error.error == QJsonParseError::NoError
-        ? QString::fromUtf8(doc.toJson(QJsonDocument::Indented))
-        : QString::fromStdString(record.json);
+    const QString payload = QString::fromUtf8(QJsonDocument(messageFields(record)).toJson(QJsonDocument::Indented));
     const auto time = QDateTime::fromMSecsSinceEpoch(record.receivedAt).toString("yyyy-MM-dd HH:mm:ss.zzz");
     const auto topicName = QString::fromStdString(name);
     const bool historical = !connected_ || record.receivedTick < connectedAtTick_;

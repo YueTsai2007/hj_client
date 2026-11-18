@@ -11,7 +11,7 @@ inline const char *kGoldLight = "#ffc971";
 QPixmap logo(int size, qreal devicePixelRatio = 1.0);
 }
 
-// 战队徽标：金色光晕 + 缓慢旋转的虚线齿轮环 + Logo
+// 战队徽标：金色光晕 + 虚线齿轮环 + Logo
 class LogoBadge : public QWidget {
 public:
     explicit LogoBadge(int size = 72, QWidget *parent = nullptr);
@@ -20,10 +20,9 @@ protected:
     void paintEvent(QPaintEvent *) override;
 private:
     int size_;
-    int angle_ = 0;
 };
 
-// 带金色四角折线、顶部强调线与淡色 Logo 水印的面板
+// 带顶部强调线和可选 Logo 水印的面板
 class GoldFrame : public QFrame {
 public:
     explicit GoldFrame(QWidget *parent = nullptr);
@@ -33,6 +32,6 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 private:
     QColor accent_ = QColor(brand::kGold);
-    bool watermark_ = true;
+    bool watermark_ = false;
 };
 

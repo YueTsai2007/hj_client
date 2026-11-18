@@ -21,9 +21,13 @@ cmake --build build/hj-client --target HJ_Client -j 4
 
 启动后端后台
 ```python
-python3 python/run_server.py --host 127.0.0.1 --port 3333
+python3 RM2027-CustomTerminal-CommunicationBackend/python/run_server.py --host 127.0.0.1 --port 3333
 ```
 启动客户端
 ```bash
 ./build/hj-client/HJ_Client --host 127.0.0.1 --port 3333 --id 3 --video-port 3334
+```
+后台消息demo
+```python
+python3 python/run_demo_server.py --host 127.0.0.1 --port 3333
 ```

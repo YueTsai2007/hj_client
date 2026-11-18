@@ -3,7 +3,6 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QRadialGradient>
-#include <QTimer>
 
 namespace brand {
 QPixmap logo(int size, qreal dpr) {
@@ -16,9 +15,6 @@ QPixmap logo(int size, qreal dpr) {
 
 LogoBadge::LogoBadge(int size, QWidget *parent) : QWidget(parent), size_(size) {
     setFixedSize(size, size);
-    auto *timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, this, [this] { angle_ = (angle_ + 1) % 360; update(); });
-    timer->start(60);
 }
 
 void LogoBadge::paintEvent(QPaintEvent *) {
@@ -38,10 +34,9 @@ void LogoBadge::paintEvent(QPaintEvent *) {
     p.setPen(QPen(QColor(232, 163, 61, 140), 1.2));
     p.setBrush(Qt::NoBrush);
     p.drawEllipse(r.adjusted(5, 5, -5, -5));
-    // 旋转的虚线齿轮环
+    // 虚线齿轮环
     p.save();
     p.translate(c);
-    p.rotate(angle_);
     QPen dash(QColor(255, 201, 113, 190), 2.2, Qt::CustomDashLine);
     dash.setDashPattern({2.0, 3.2});
     dash.setCapStyle(Qt::RoundCap);
@@ -77,23 +72,8 @@ void GoldFrame::paintEvent(QPaintEvent *event) {
     // 顶部强调线（阵营色，两端渐隐）
     QLinearGradient top(r.left(), 0, r.right(), 0);
     QColor a = accent_; a.setAlpha(0);
-    QColor b = accent_; b.setAlpha(230);
+    QColor b = accent_; b.setAlpha(145);
     top.setColorAt(0.0, a); top.setColorAt(0.18, b); top.setColorAt(0.82, b); top.setColorAt(1.0, a);
-    p.setPen(QPen(QBrush(top), 2));
+    p.setPen(QPen(QBrush(top), 1));
     p.drawLine(QPointF(r.left() + 14, r.top() + 1), QPointF(r.right() - 14, r.top() + 1));
-    // 金色四角折线
-    QLinearGradient gold(0, 0, 0, height());
-    gold.setColorAt(0, QColor(brand::kGoldLight));
-    gold.setColorAt(1, QColor(brand::kGold));
-    p.setPen(QPen(QBrush(gold), 2, Qt::SolidLine, Qt::SquareCap));
-    const qreal L = 16, m = 1;
-    p.drawLine(QPointF(r.left() + m, r.top() + L), QPointF(r.left() + m, r.top() + m));
-    p.drawLine(QPointF(r.left() + m, r.top() + m), QPointF(r.left() + L, r.top() + m));
-    p.drawLine(QPointF(r.right() - m, r.top() + L), QPointF(r.right() - m, r.top() + m));
-    p.drawLine(QPointF(r.right() - m, r.top() + m), QPointF(r.right() - L, r.top() + m));
-    p.drawLine(QPointF(r.left() + m, r.bottom() - L), QPointF(r.left() + m, r.bottom() - m));
-    p.drawLine(QPointF(r.left() + m, r.bottom() - m), QPointF(r.left() + L, r.bottom() - m));
-    p.drawLine(QPointF(r.right() - m, r.bottom() - L), QPointF(r.right() - m, r.bottom() - m));
-    p.drawLine(QPointF(r.right() - m, r.bottom() - m), QPointF(r.right() - L, r.bottom() - m));
 }
-

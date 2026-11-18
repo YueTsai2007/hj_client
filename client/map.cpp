@@ -1,14 +1,68 @@
 #include "map.h"
 #include "brand.h"
 #include <QPainter>
+#include <QVariant>
 #include <QPainterPath>
 #include <QPolygonF>
 #include <QRadialGradient>
 
-Map::Map(QWidget *parent) : QWidget(parent) { setMinimumSize(220, 140); }
-void Map::flip() { flipped_ = !flipped_; update(); }
+Map::Map(QWidget *parent) : QWidget(parent) { setMinimumSize(185, 115); }
+void Map::flip() { flipped_ = !flipped_; schematic_ = {}; update(); }
+void Map::setRobotPosition(uint id, QPointF position) {
+    const uint number = id % 100;
+    if (id > 107 ||
+        (number != 1 && number != 3 && number != 4 && number != 7) ||
+        !(position.x() >= 0 && position.x() <= 1 && position.y() >= 0 && position.y() <= 1))
+        return;
+    auto &robot = robots_[id];
+    robot.position = position;
+    robot.age.start();
+    update();
+}
+
+void Map::clearRobotPositions() {
+    robots_.clear();
+    update();
+}
+
+void Map::expireRobotPositions() {
+    const auto count = robots_.size();
+    for (auto it = robots_.begin(); it != robots_.end();) {
+        if (it->age.elapsed() >= 3000) it = robots_.erase(it);
+        else ++it;
+    }
+    if (robots_.size() != count) update();
+}
+
 void Map::paintEvent(QPaintEvent *) {
-    QPainter p(this);
+    const qreal scale = devicePixelRatioF();
+    const QSize pixels = size() * scale;
+    if (schematic_.size() != pixels || schematic_.devicePixelRatio() != scale) {
+        schematic_ = QPixmap(pixels);
+        schematic_.setDevicePixelRatio(scale);
+        schematic_.fill(Qt::transparent);
+        QPainter cachePainter(&schematic_);
+        paintSchematic(cachePainter);
+    }
+    QPainter painter(this);
+    painter.drawPixmap(0, 0, schematic_);
+    painter.setRenderHint(QPainter::Antialiasing);
+    const qreal fit = qMin(width() / 900.0, height() / 590.0);
+    const QPointF center(width() / 2.0, height() / 2.0);
+    for (auto it = robots_.cbegin(); it != robots_.cend(); ++it) {
+        const auto position = it->position;
+        const qreal direction = flipped_ ? -1 : 1;
+        const auto point = center + QPointF((position.x() - .5) * 820,
+                                           (.5 - position.y()) * 510) * fit * direction;
+        painter.setPen(QPen(QColor("#fff4df"), 1.5));
+        painter.setBrush(QColor(it.key() < 100 ? "#b93649" : "#2166b4"));
+        painter.drawEllipse(point, 11, 11);
+        painter.drawText(QRectF(point.x() - 11, point.y() - 11, 22, 22),
+                         Qt::AlignCenter, QString::number(it.key() % 100));
+    }
+}
+
+void Map::paintSchematic(QPainter &p) {
     p.setRenderHint(QPainter::Antialiasing);
     QPainterPath clip;
     clip.addRoundedRect(QRectF(rect()), 10, 10);
@@ -22,7 +76,8 @@ void Map::paintEvent(QPaintEvent *) {
     p.save();
     p.translate(width() / 2.0, height() / 2.0);
     if (flipped_) p.rotate(180);
-    p.scale(width() / 900.0, height() / 590.0);
+    const qreal scale = qMin(width() / 900.0, height() / 590.0);
+    p.scale(scale, scale);
     p.translate(-450, -295);
 
     // 网格
@@ -91,7 +146,7 @@ void Map::paintEvent(QPaintEvent *) {
     p.drawLine(width() - m, height() - m - L, width() - m, height() - m); p.drawLine(width() - m, height() - m, width() - m - L, height() - m);
 
     // 底部说明胶囊
-    const QString note = QStringLiteral("示意底图 · 位置映射待确认");
+    const QString note = property("demoMode").toBool() ? QStringLiteral("模拟坐标") : QStringLiteral("坐标待校准");
     QFont f = font(); f.setPointSize(9); p.setFont(f);
     const QRect tr = p.fontMetrics().boundingRect(note).adjusted(-10, -4, 10, 4);
     const QRect box(14, height() - tr.height() - 14, tr.width(), tr.height());

@@ -1,6 +1,9 @@
 #include "window.h"
 #include "window_helpers.h"
 #include "brand.h"
+#include "map.h"
+#include "video_view.h"
+#include <QStyle>
 #include "rm2027/api/messages.h"
 #include "rm2027/api/detail/registry.h"
 #include "rm2027/protocol/codec.h"
@@ -13,6 +16,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QTimer>
+#include <QUuid>
 
 namespace {
 QString timeText(int seconds) {
@@ -51,7 +55,15 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
     showHealthPlaceholder(QStringLiteral("等待数据"));
     maxClock_.start();
     rm2027::Client::Options opt;
-    opt.host = host.toStdString(); opt.port = port; opt.clientId = id.toStdString(); opt.subscribeAllDownlink = true; opt.logMessages = false;
+    opt.host = host.toStdString();
+    opt.port = port;
+    opt.clientId = id.toStdString();
+    if (demoMode_) {
+        const QString session = QUuid::createUuid().toString(QUuid::Id128);
+        opt.clientId = (QStringLiteral("hj-demo-") + session.left(15)).toStdString();
+    }
+    opt.subscribeAllDownlink = true;
+    opt.logMessages = false;
     client_ = std::make_unique<rm2027::Client>(opt);
     QPointer<Window> self(this);
     client_->onRaw([self](const std::string &topic, const std::string &payload) {
@@ -63,7 +75,10 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
         QMetaObject::invokeMethod(self, [self, connected, changedAt] {
             if (!self) return;
             self->connected_ = connected;
-            if (connected) self->connectedAtTick_ = changedAt;
+            if (connected) {
+                self->connectedAtTick_ = changedAt;
+                self->dataStatus_->setText(QStringLiteral("等待比赛首包"));
+            }
             self->connection_->setText(connected ? QStringLiteral("● 已连接") : QStringLiteral("● 连接断开 / 重试中"));
             self->connection_->setProperty("up", connected);
             self->connection_->style()->unpolish(self->connection_); self->connection_->style()->polish(self->connection_);
@@ -72,11 +87,14 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
                 self->health_.clear();
                 self->scoreRed_->setText("--"); self->scoreBlue_->setText("--"); self->clock_->setText("--:--");
                 self->round_->setText(QStringLiteral("连接断开")); self->dataStatus_->setText(QStringLiteral("连接断开，等待新数据"));
-                self->base_->setText(QStringLiteral("基地血量　连接断开")); self->damage_->setText(QStringLiteral("累计伤害　连接断开"));
+                self->setBaseHealth(self->baseRed_, self->baseRedBar_, QStringLiteral("--"));
+                self->setBaseHealth(self->baseBlue_, self->baseBlueBar_, QStringLiteral("--"));
+                self->lastStage_.clear(); self->damage_->setText(QStringLiteral("累计伤害　连接断开"));
                 self->economy_->setText(QStringLiteral("经济数据　连接断开"));
                 self->showHealthPlaceholder(QStringLiteral("连接断开"));
                 self->position_->setText(QStringLiteral("机器人坐标：连接断开")); self->radar_->setText(QStringLiteral("雷达坐标：连接断开"));
                 self->gameAge_.invalidate(); self->unitAge_.invalidate(); self->economyAge_.invalidate();
+                self->map_->clearRobotPositions();
                 self->positionAge_.invalidate(); self->radarAge_.invalidate();
                 self->refreshSummary();
             }
@@ -90,6 +108,13 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
             if (!self) return;
             self->scoreRed_->setText(fieldValue(fields, "redScore")); self->scoreBlue_->setText(fieldValue(fields, "blueScore"));
             self->round_->setText(QStringLiteral("第 %1 / %2 局 · %3%4").arg(fieldValue(fields, "currentRound"), fieldValue(fields, "totalRounds"), stageText(fields), fields.contains("isPaused") && data.is_paused ? QStringLiteral(" · 暂停") : QString()));
+            if (fields.contains("currentStage")) {
+                const QString stage = self->round_->text();
+                if (stage != self->lastStage_) {
+                    self->lastStage_ = stage;
+                    self->addEvent(stage);
+                }
+            }
             self->clock_->setText(fields.contains("stageCountdownSec") ? timeText(data.stage_countdown_sec) : QStringLiteral("--:--")); self->gameAge_.restart(); self->dataStatus_->setText(QStringLiteral("比赛状态已更新"));
         }, Qt::QueuedConnection);
     });
@@ -98,7 +123,10 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
         const auto data = *msg; const auto fields = self->messageFields(msg->name());
         QMetaObject::invokeMethod(self, [self, data, fields] {
             if (!self) return;
-            self->base_->setText(QStringLiteral("红方基地 %1 HP　　　　　　 蓝方基地 %2 HP").arg(self->ownSide_ < 0 ? QStringLiteral("--") : fieldValue(fields, self->ownSide_ == 0 ? "baseHealth" : "enemyBaseHealth"), self->ownSide_ < 0 ? QStringLiteral("--") : fieldValue(fields, self->ownSide_ == 0 ? "enemyBaseHealth" : "baseHealth")));
+            if (self->ownSide_ >= 0) {
+                self->setBaseHealth(self->baseRed_, self->baseRedBar_, fieldValue(fields, self->ownSide_ == 0 ? "baseHealth" : "enemyBaseHealth"));
+                self->setBaseHealth(self->baseBlue_, self->baseBlueBar_, fieldValue(fields, self->ownSide_ == 0 ? "enemyBaseHealth" : "baseHealth"));
+            }
             self->damage_->setText(QStringLiteral("控制度 %3 / %4　·　累计伤害 %1 / %2").arg(fieldValue(fields, "totalDamageAlly"), fieldValue(fields, "totalDamageEnemy")).arg(fieldValue(fields, "totalCPAlly"), fieldValue(fields, "totalCPEnemy")));
             self->health_ = data.robot_health;
             self->showHealth(self->health_);
@@ -134,8 +162,7 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
         const auto fields = self->messageFields(msg->name());
         QMetaObject::invokeMethod(self, [self, fields] {
             if (!self) return;
-            self->events_->insertItem(0, QDateTime::currentDateTime().toString("HH:mm:ss") + QStringLiteral("  事件 %1  %2").arg(fieldValue(fields, "eventId"), fieldValue(fields, "param")));
-            while (self->events_->count() > 100) delete self->events_->takeItem(self->events_->count() - 1);
+            self->addEvent(QStringLiteral("事件 %1  %2").arg(fieldValue(fields, "eventId"), fieldValue(fields, "param")));
         }, Qt::QueuedConnection);
     });
     client_->on<rm2027::RobotPosition>([self](std::unique_ptr<rm2027::RobotPosition> msg) {
@@ -146,6 +173,12 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
             self->position_->setText(QStringLiteral("机器人 %1：X %2　Y %3　Z %4　朝向 %5（原始值）")
                 .arg(fieldValue(fields, "robotId"), fieldValue(fields, "x"), fieldValue(fields, "y"), fieldValue(fields, "z"), fieldValue(fields, "yaw")));
             self->positionAge_.restart();
+            if (self->connected_ && self->demoMode_ &&
+                fields.value("robotId").isDouble() && fields.value("x").isDouble() && fields.value("y").isDouble()) {
+                // Demo publisher uses a normalized field, with +Y pointing up.
+                self->map_->setRobotPosition(static_cast<uint>(fields.value("robotId").toDouble()),
+                    QPointF(fields.value("x").toDouble(), fields.value("y").toDouble()));
+            }
         }, Qt::QueuedConnection);
     });
     client_->on<rm2027::RadarInfoToClient>([self](std::unique_ptr<rm2027::RadarInfoToClient> msg) {
@@ -177,31 +210,57 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
             self->radarAge_.restart();
         }, Qt::QueuedConnection);
     });
+    client_->on<rm2027::PenaltyInfo>([self](std::unique_ptr<rm2027::PenaltyInfo> msg) {
+        if (!self) return;
+        const auto fields = self->messageFields(msg->name());
+        QMetaObject::invokeMethod(self, [self, fields] {
+            if (self) self->addEvent(QStringLiteral("判罚 %1 · %2 秒 · 累计 %3 次")
+                .arg(fieldValue(fields, "penaltyType"), fieldValue(fields, "penaltyEffectSec"),
+                     fieldValue(fields, "totalPenaltyNum")));
+        }, Qt::QueuedConnection);
+    });
     client_->onAny([](std::unique_ptr<rm2027::Message>) {});
     std::string error;
     if (!client_->start(&error)) connection_->setText(QStringLiteral("启动失败：") + QString::fromStdString(error));
     rm2027::VideoReceiverOptions videoOptions; videoOptions.port = videoPort;
     video_ = std::make_unique<rm2027::VideoReceiver>(videoOptions);
-    if (!video_->start(&error)) videoStatus_->setText(QStringLiteral("图传启动失败：") + QString::fromStdString(error));
+    if (!video_->start(&error)) {
+        videoStatus_->setText(QStringLiteral("启动失败：") + QString::fromStdString(error));
+        videoLink_->setText(QStringLiteral("图传 · 启动失败"));
+        videoView_->setPlaceholder(QStringLiteral("图传启动失败"));
+    }
     timer_ = new QTimer(this);
-    connect(timer_, &QTimer::timeout, this, [this] { updateVideo(); markStale(); });
+    connect(timer_, &QTimer::timeout, this, &Window::updateVideo);
     timer_->start(33);
     auto *summaryTimer = new QTimer(this);
-    connect(summaryTimer, &QTimer::timeout, this, [this] { refreshSummary(); updateAlert(); });
-    summaryTimer->start(500);
+    connect(summaryTimer, &QTimer::timeout, this, [this] { markStale(); refreshSummary(); updateAlert(); });
+    summaryTimer->start(200);
 }
+void Window::addEvent(const QString &text) {
+    events_->insertItem(0, QDateTime::currentDateTime().toString("HH:mm:ss") + QStringLiteral("  ") + text);
+    while (events_->count() > 100) delete events_->takeItem(events_->count() - 1);
+}
+
 void Window::updateVideo() {
     if (!video_ || !video_->running()) return;
     rm2027::VideoFrame info;
-    if (video_->getLatestFrame(&videoSequence_, &frame_, &info) && info.width > 0 && info.height > 0 && info.stride >= info.width * 3 && frame_.size() >= static_cast<size_t>(info.stride) * info.height) {
+    if (video_->getLatestFrame(&videoSequence_, &frame_, &info) && info.width > 0 && info.height > 0 &&
+        info.stride >= static_cast<qint64>(info.width) * 3 &&
+        frame_.size() >= static_cast<size_t>(info.stride) * info.height) {
         const QImage image(frame_.data(), info.width, info.height, info.stride, QImage::Format_BGR888);
-        videoView_->setPixmap(QPixmap::fromImage(image.copy()).scaled(videoView_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        videoView_->setFrame(image.copy());
         frameAge_.restart();
+        gotVideo_ = true;
+        videoLink_->setText(QStringLiteral("图传 · 正常"));
         videoStatus_->setText(QStringLiteral("接收中 · %1 × %2").arg(info.width).arg(info.height));
     } else if (frameAge_.isValid() && frameAge_.elapsed() > 2000) {
-        videoView_->setPixmap(QPixmap()); videoView_->setText(QStringLiteral("图传画面已中断")); videoStatus_->setText(QStringLiteral("等待新画面")); frameAge_.invalidate();
-    } else if (!frameAge_.isValid() && video_->stats().decodeErrors > 0) {
+        videoView_->setPlaceholder(QStringLiteral("图传已中断"));
+        videoLink_->setText(QStringLiteral("图传 · 中断"));
+        videoStatus_->setText(QStringLiteral("等待恢复"));
+        frameAge_.invalidate();
+    } else if (!gotVideo_ && video_->stats().decodeErrors > 0) {
         videoStatus_->setText(QStringLiteral("图传解码错误，等待恢复"));
+        videoLink_->setText(QStringLiteral("图传 · 解码异常"));
     }
 }
 
@@ -209,32 +268,31 @@ void Window::recordRaw(const std::string &topic, const std::string &payload) {
     const auto *desc = rm2027::findMessage(topic);
     if (!desc) return;
     std::string error;
-    const auto proto = rm2027::decodeMessage(rm2027::wireDescriptor(*desc), payload.data(), payload.size(), &error);
-    google::protobuf::util::JsonPrintOptions options;
-    options.always_print_primitive_fields = false;
-    std::string json;
-    if (proto) {
-        const auto status = google::protobuf::util::MessageToJsonString(*proto, &json, options);
-        if (!status.ok()) error = status.ToString();
-    }
-    const auto now = std::chrono::system_clock::now().time_since_epoch();
-    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    auto message = rm2027::decodeMessage(rm2027::wireDescriptor(*desc), payload.data(), payload.size(), &error);
     std::lock_guard<std::mutex> lock(recordsMutex_);
     auto &record = records_[topic];
-    record.json = json;
-    record.error = error;
-    record.receivedAt = milliseconds;
+    record.message = std::move(message);
+    record.error = std::move(error);
+    record.receivedAt = QDateTime::currentMSecsSinceEpoch();
     record.receivedTick = monotonicMs();
     ++record.count;
 }
 
-QJsonObject Window::messageFields(const std::string &topic) {
+QJsonObject Window::messageFields(const MessageRecord &record) {
+    if (!record.message) return {};
     std::string json;
+    const auto status = google::protobuf::util::MessageToJsonString(*record.message, &json);
+    if (!status.ok()) return {};
+    return QJsonDocument::fromJson(QByteArray::fromStdString(json)).object();
+}
+
+QJsonObject Window::messageFields(const std::string &topic) {
+    MessageRecord record;
     {
         std::lock_guard<std::mutex> lock(recordsMutex_);
         const auto it = records_.find(topic);
         if (it == records_.end()) return {};
-        json = it->second.json;
+        record = it->second;
     }
-    return QJsonDocument::fromJson(QByteArray::fromStdString(json)).object();
+    return messageFields(record);
 }

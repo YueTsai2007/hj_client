@@ -2,19 +2,173 @@
 #include "window_helpers.h"
 #include "map.h"
 #include "brand.h"
-#include "rm2027/api/wire_format.h"
+#include "video_view.h"
+#include <QSettings>
+#include <QShortcut>
+#include <QApplication>
+#include <QDrag>
+#include <QDragEnterEvent>
+#include <QMimeData>
+#include <QMouseEvent>
+#include <functional>
+#include <QCloseEvent>
+#include <QResizeEvent>
+#include <QSplitter>
+#include <QToolBar>
+#include <QToolButton>
+#include <QMenu>
 #include <QIcon>
 #include <QStyle>
-#include <QComboBox>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QListWidget>
 #include <QPushButton>
+#include <QProgressBar>
+#include <QPainter>
+#include <QPainterPath>
 #include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
+class ModuleTitle final : public QLabel {
+public:
+    explicit ModuleTitle(const QString &title) : QLabel(title) {
+        setObjectName("moduleTitle");
+        setCursor(Qt::OpenHandCursor);
+        setAcceptDrops(true);
+        setToolTip(QStringLiteral("拖到另一个模块的标题栏"));
+    }
+
+    std::function<bool(QWidget *)> canDrop;
+    std::function<void(QWidget *)> dropped;
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override {
+        if (event->button() == Qt::LeftButton) press_ = event->pos();
+        QLabel::mousePressEvent(event);
+    }
+    void mouseMoveEvent(QMouseEvent *event) override {
+        if (!(event->buttons() & Qt::LeftButton) ||
+            (event->pos() - press_).manhattanLength() < QApplication::startDragDistance())
+            return;
+        QDrag drag(this);
+        auto *data = new QMimeData;
+        data->setData("application/x-hj-module", QByteArray());
+        drag.setMimeData(data);
+        drag.exec(Qt::MoveAction);
+    }
+    void dragEnterEvent(QDragEnterEvent *event) override {
+        auto *title = dynamic_cast<ModuleTitle *>(event->source());
+        if (!title || !canDrop(title->parentWidget())) return;
+        setStyleSheet(QStringLiteral("background:#745127;"));
+        event->acceptProposedAction();
+    }
+    void dragLeaveEvent(QDragLeaveEvent *) override { setStyleSheet({}); }
+    void dropEvent(QDropEvent *event) override {
+        setStyleSheet({});
+        auto *title = dynamic_cast<ModuleTitle *>(event->source());
+        if (!title || !canDrop(title->parentWidget())) return;
+        dropped(title->parentWidget());
+        event->acceptProposedAction();
+    }
+
+private:
+    QPoint press_;
+};
+
+class WatermarkedList final : public QListWidget {
+protected:
+    void scrollContentsBy(int dx, int dy) override {
+        QListWidget::scrollContentsBy(dx, dy);
+        viewport()->update();
+    }
+
+    void paintEvent(QPaintEvent *event) override {
+        const int size = qMin(viewport()->width(), viewport()->height()) * 2 / 3;
+        const qreal scale = viewport()->devicePixelRatioF();
+        if (size > 0) {
+            if (size != logoSize_ || scale != logo_.devicePixelRatio()) {
+                logo_ = brand::logo(size, scale);
+                logoSize_ = size;
+            }
+            QPainter painter(viewport());
+            painter.setOpacity(0.08);
+            const QSizeF logicalSize = QSizeF(logo_.size()) / scale;
+            painter.drawPixmap(QPointF((viewport()->width() - logicalSize.width()) / 2,
+                                       (viewport()->height() - logicalSize.height()) / 2), logo_);
+        }
+        QListWidget::paintEvent(event);
+    }
+
+private:
+    QPixmap logo_;
+    int logoSize_ = 0;
+};
+
+class BaseHealthBar final : public QProgressBar {
+public:
+    BaseHealthBar(const QString &title, const QColor &color, bool right)
+        : title_(title), color_(color), right_(right) {
+        setRange(0, 1000);
+        reset();
+        setFormat(QStringLiteral("--"));
+        setAccessibleName(title);
+        setFixedHeight(70);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const QRectF bounds = QRectF(rect()).adjusted(1, 1, -1, -1);
+        const qreal cut = 17;
+        const QPolygonF outline(QVector<QPointF>{
+            bounds.topLeft() + QPointF(right_ ? cut : 0, 0),
+            bounds.topRight() - QPointF(right_ ? 0 : cut, 0),
+            bounds.bottomRight() - QPointF(right_ ? cut : 0, 0),
+            bounds.bottomLeft() + QPointF(right_ ? 0 : cut, 0)
+        });
+        QPainterPath shape;
+        shape.addPolygon(outline);
+        shape.closeSubpath();
+        painter.fillPath(shape, QColor("#212a36"));
+        if (value() >= 0) {
+            const qreal filled = bounds.width() * value() / maximum();
+            const QRectF fill(right_ ? bounds.right() - filled : bounds.left(),
+                              bounds.top(), filled, bounds.height());
+            QLinearGradient gradient(bounds.topLeft(), bounds.bottomLeft());
+            gradient.setColorAt(0, color_.darker(140));
+            gradient.setColorAt(1, color_.darker(255));
+            painter.save();
+            painter.setClipPath(shape);
+            painter.fillRect(fill, gradient);
+            painter.restore();
+        }
+        painter.setPen(QPen(color_, 1.5));
+        painter.drawPath(shape);
+        QFont type = font();
+        type.setPixelSize(14);
+        painter.setFont(type);
+        painter.setPen(QColor("#fff4e9"));
+        painter.drawText(bounds.adjusted(0, 7, 0, 0), Qt::AlignTop | Qt::AlignHCenter, title_);
+        type.setPixelSize(31);
+        type.setBold(true);
+        painter.setFont(type);
+        painter.drawText(bounds.adjusted(0, 22, 0, -3), Qt::AlignCenter, format() + QStringLiteral(" HP"));
+    }
+
+private:
+    QString title_;
+    QColor color_;
+    bool right_;
+};
+
+QSettings preferences() {
+    return QSettings(QSettings::IniFormat, QSettings::UserScope, QStringLiteral("Hanjiang"), QStringLiteral("HJ_Client"));
+}
+
 QFrame *panel(const QString &title, QVBoxLayout *&layout, const char *name = "panel") {
     auto *frame = new GoldFrame;
     frame->setObjectName(name);
@@ -23,10 +177,8 @@ QFrame *panel(const QString &title, QVBoxLayout *&layout, const char *name = "pa
     layout->setSpacing(8);
     auto *head = new QHBoxLayout;
     head->setSpacing(8);
-    const int split = title.indexOf(QStringLiteral("/"));
-    head->addWidget(label(split > 0 ? title.left(split).trimmed() : title, "panelTitle"));
+    head->addWidget(label(title, "panelTitle"));
     head->addStretch();
-    if (split > 0) head->addWidget(label(title.mid(split + 1).trimmed(), "panelTag"));
     layout->addLayout(head);
     auto *rule = new QFrame;
     rule->setObjectName("goldRule");
@@ -37,7 +189,13 @@ QFrame *panel(const QString &title, QVBoxLayout *&layout, const char *name = "pa
 } // namespace
 
 Window::Window(const QString &host, quint16 port, const QString &id, quint16 videoPort) {
+    const bool loopback = host == QStringLiteral("127.0.0.1") ||
+                          host.compare(QStringLiteral("localhost"), Qt::CaseInsensitive) == 0 ||
+                          host == QStringLiteral("::1");
+    demoMode_ = qEnvironmentVariableIsSet("HJ_DEMO_MAP")
+        ? qEnvironmentVariableIntValue("HJ_DEMO_MAP") == 1 : loopback;
     setupUi();
+    applyWindowPreferences();
     start(host, port, id, videoPort);
 }
 Window::~Window() {
@@ -47,189 +205,316 @@ Window::~Window() {
 }
 void Window::setupUi() {
     setWindowTitle(QStringLiteral("悍匠 · 战场终端"));
-    resize(1600, 960);
-    setMinimumSize(1100, 720);
-    auto *root = new QWidget;
-    root->setObjectName("root");
-    auto *outer = new QVBoxLayout(root);
-    outer->setContentsMargins(14, 12, 14, 12);
-    outer->setSpacing(10);
-    setWindowIcon(QIcon(brand::logo(128)));
-    auto *topBar = new GoldFrame;
-    topBar->setObjectName("topBar");
-    topBar->setAccent(QColor(brand::kGold));
-    auto *header = new QHBoxLayout(topBar);
-    header->setContentsMargins(18, 10, 18, 10);
-    header->setSpacing(14);
-    header->addWidget(new LogoBadge(78));
-    auto *identity = new QVBoxLayout;
-    identity->setSpacing(2);
-    auto *brandName = label(QStringLiteral("悍匠"), "brand");
-    QFont brandFont = brandName->font(); brandFont.setLetterSpacing(QFont::AbsoluteSpacing, 10); brandName->setFont(brandFont);
+    setMinimumSize(780, 520);
+    auto *shell = new QWidget;
+    setCentralWidget(shell);
+    auto *shellLayout = new QVBoxLayout(shell);
+    shellLayout->setContentsMargins(8, 4, 8, 6);
+    shellLayout->setSpacing(6);
+    auto *scorePanel = new QWidget;
+    auto *outer = new QVBoxLayout(scorePanel);
+    outer->setContentsMargins(12, 6, 12, 8);
+    outer->setSpacing(6);
+
+    auto *header = new QGridLayout;
+    header->setColumnStretch(1, 1);
+    header->setColumnStretch(5, 1);
+    auto *identity = new QHBoxLayout;
+    identity->addWidget(new LogoBadge(32));
+    auto *team = label(QStringLiteral("深圳技术大学悍匠战队"), "brand");
+    identity->addWidget(team);
     identity->addStretch();
-    identity->addWidget(brandName);
-    identity->addWidget(label(QStringLiteral("SHENZHEN TECHNOLOGY UNIVERSITY"), "brandSub"));
-    identity->addWidget(label(QStringLiteral("HANJIANG ROBOTEAM  ·  RM2027"), "brandTag"));
-    identity->addStretch();
-    header->addLayout(identity);
-    header->addStretch();
-    auto *redCard = new QFrame; redCard->setObjectName("scoreCardRed");
-    auto *red = new QVBoxLayout(redCard);
-    red->setContentsMargins(22, 6, 22, 6); red->setSpacing(0);
-    auto *redCap = label(QStringLiteral("红方比分  RED"), "caption"); redCap->setAlignment(Qt::AlignCenter); red->addWidget(redCap);
-    scoreRed_ = label(QStringLiteral("--"), "redScore"); scoreRed_->setAlignment(Qt::AlignCenter); red->addWidget(scoreRed_);
-    header->addWidget(redCard);
-    auto *clockCard = new QFrame; clockCard->setObjectName("clockCard");
-    auto *middle = new QVBoxLayout(clockCard);
-    middle->setContentsMargins(26, 6, 26, 6); middle->setSpacing(0);
-    round_ = label(QStringLiteral("等待比赛状态"), "round"); round_->setAlignment(Qt::AlignCenter);
-    clock_ = label(QStringLiteral("--:--"), "clock"); clock_->setAlignment(Qt::AlignCenter);
-    middle->addWidget(round_); middle->addWidget(clock_);
-    header->addWidget(clockCard);
-    auto *blueCard = new QFrame; blueCard->setObjectName("scoreCardBlue");
-    auto *blue = new QVBoxLayout(blueCard);
-    blue->setContentsMargins(22, 6, 22, 6); blue->setSpacing(0);
-    auto *blueCap = label(QStringLiteral("蓝方比分  BLUE"), "caption"); blueCap->setAlignment(Qt::AlignCenter); blue->addWidget(blueCap);
-    scoreBlue_ = label(QStringLiteral("--"), "blueScore"); scoreBlue_->setAlignment(Qt::AlignCenter); blue->addWidget(scoreBlue_);
-    header->addWidget(blueCard);
-    header->addStretch();
-    connection_ = label(QStringLiteral("未连接"), "status"); header->addWidget(connection_, 0, Qt::AlignVCenter);
-    outer->addWidget(topBar);
-    alert_ = label(QStringLiteral("●  等待连接"), "alert");
-    alert_->setWordWrap(true);
+    header->addLayout(identity, 0, 0, 1, 3);
+    const auto score = [header](int column, const QString &title, const char *style) {
+        auto *group = new QVBoxLayout;
+        auto *caption = label(title, "caption");
+        auto *value = label(QStringLiteral("--"), style);
+        caption->setAlignment(Qt::AlignCenter);
+        value->setAlignment(Qt::AlignCenter);
+        group->addWidget(caption);
+        group->addWidget(value);
+        header->addLayout(group, 1, column);
+        return value;
+    };
+    baseRed_ = label(QStringLiteral("--"));
+    baseRed_->setParent(scorePanel);
+    baseRed_->hide();
+    baseRedBar_ = new BaseHealthBar(QStringLiteral("红方基地"), QColor("#ff7284"), false);
+    header->addWidget(baseRedBar_, 1, 0, 1, 2);
+    scoreRed_ = score(2, QStringLiteral("红方比分"), "redScore");
+    auto *clockGroup = new QVBoxLayout;
+    round_ = label(QStringLiteral("等待比赛状态"), "caption");
+    clock_ = label(QStringLiteral("--:--"), "clock");
+    round_->setAlignment(Qt::AlignCenter);
+    clock_->setAlignment(Qt::AlignCenter);
+    clockGroup->addWidget(round_);
+    clockGroup->addWidget(clock_);
+    header->addLayout(clockGroup, 1, 3);
+    scoreBlue_ = score(4, QStringLiteral("蓝方比分"), "blueScore");
+    baseBlue_ = label(QStringLiteral("--"));
+    baseBlue_->setParent(scorePanel);
+    baseBlue_->hide();
+    baseBlueBar_ = new BaseHealthBar(QStringLiteral("蓝方基地"), QColor("#72b7ff"), true);
+    header->addWidget(baseBlueBar_, 1, 5, 1, 2);
+    auto *links = new QHBoxLayout;
+    links->addStretch();
+    connection_ = label(QStringLiteral("裁判 · 正在连接"), "caption");
+    dataStatus_ = label(QStringLiteral("等待比赛数据"), "caption");
+    videoLink_ = label(QStringLiteral("图传 · 等待首帧"), "caption");
+    for (auto *link : {connection_, dataStatus_, videoLink_}) {
+        link->setAlignment(Qt::AlignRight);
+        links->addWidget(link);
+    }
+    header->addLayout(links, 0, 3, 1, 4);
+    outer->addLayout(header);
+
+    alert_ = label(QStringLiteral("等待连接"), "alert");
+    alert_->setFixedHeight(34);
     outer->addWidget(alert_);
-    auto *bar = new QHBoxLayout;
-    bar->addWidget(label(QStringLiteral("战场态势"), "section")); bar->addWidget(label(QStringLiteral("TACTICAL OVERVIEW  /  HANJIANG"), "panelTag"));
-    bar->addStretch(); dataStatus_ = label(QStringLiteral("等待数据"), "caption"); bar->addWidget(dataStatus_);
-    auto *detailsButton = new QPushButton(QStringLiteral("消息详情"));
-    detailsButton->setCursor(Qt::PointingHandCursor);
-    connect(detailsButton, &QPushButton::clicked, this, &Window::showDetails);
-    bar->addWidget(detailsButton);
-    outer->addLayout(bar);
-    auto *top = new QHBoxLayout;
-    QVBoxLayout *leftLayout, *mapLayout, *rightLayout;
-    auto *left = panel(QStringLiteral("我方机器人   /   ALLY UNIT"), leftLayout, "allyPanel");
-    ally_ = new QListWidget; ally_->setSelectionMode(QAbstractItemView::NoSelection); ally_->setFocusPolicy(Qt::NoFocus); leftLayout->addWidget(ally_);
-    auto *mapPanel = panel(QStringLiteral("战场地图   /   TACTICAL MAP"), mapLayout);
-    map_ = new Map; mapLayout->addWidget(map_, 1);
+    scorePanel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    shellLayout->addWidget(scorePanel);
+    workspace_ = new QSplitter(Qt::Horizontal);
+    workspace_->setObjectName("workspace");
+    workspace_->setChildrenCollapsible(false);
+    workspace_->setHandleWidth(9);
+    auto *primary = new QWidget;
+    primaryLayout_ = new QVBoxLayout(primary);
+    primaryLayout_->setContentsMargins(0, 0, 0, 0);
+    sidebar_ = new QSplitter(Qt::Vertical);
+    sidebar_->setObjectName("moduleSidebar");
+    sidebar_->setChildrenCollapsible(false);
+    sidebar_->setHandleWidth(9);
+    workspace_->addWidget(primary);
+    workspace_->addWidget(sidebar_);
+    shellLayout->addWidget(workspace_, 1);
+    auto *toolbar = addToolBar(QStringLiteral("窗口布局"));
+    toolbar->setObjectName("layoutToolbar");
+    toolbar->setMovable(false);
+    auto *switchView = toolbar->addAction(QStringLiteral("切换地图 / 图传  F2"));
+    switchView->setShortcut(QKeySequence(Qt::Key_F2));
+    switchView->setAutoRepeat(false);
+    connect(switchView, &QAction::triggered, this, &Window::focusPrimaryView);
+    connect(toolbar->addAction(QStringLiteral("消息详情")), &QAction::triggered, this, &Window::showDetails);
+    connect(toolbar->addAction(QStringLiteral("恢复默认布局")), &QAction::triggered, this, [this] {
+        sidebarModules_ = defaultSidebar_;
+        mapPriority_ = true;
+        detailsDock_->hide();
+        arrangeModules();
+        workspace_->setSizes({width() * 2 / 3, width() / 3});
+        sidebar_->setSizes({1, 1, 1, 1, 0});
+    });
+
+    QVBoxLayout *videoLayout, *mapLayout, *allyLayout, *enemyLayout, *eventLayout, *metricsLayout;
+    auto *videoPanel = panel(QStringLiteral("图传画面"), videoLayout);
+    videoView_ = new VideoView;
+    videoLayout->addWidget(videoView_, 1);
+    videoStatus_ = label(QStringLiteral("等待首帧"), "caption");
+    videoLayout->addWidget(videoStatus_);
+
+    auto *mapPanel = panel(QStringLiteral("战场地图 · 示意图"), mapLayout);
+    map_ = new Map;
+    map_->setProperty("demoMode", demoMode_);
+    mapLayout->addWidget(map_, 1);
+    auto *flip = new QPushButton(QStringLiteral("切换视角"));
+    connect(flip, &QPushButton::clicked, map_, &Map::flip);
+    mapLayout->addWidget(flip);
     position_ = label(QStringLiteral("机器人坐标：等待数据"), "caption");
     radar_ = label(QStringLiteral("雷达坐标：等待数据"), "caption");
-    position_->setWordWrap(true); radar_->setWordWrap(true);
-    mapLayout->addWidget(position_); mapLayout->addWidget(radar_);
-    auto *formatLayout = new QHBoxLayout;
-    formatLayout->addWidget(label(QStringLiteral("雷达线格式"), "caption"));
-    auto *radarFormat = new QComboBox;
-    radarFormat->addItem(QStringLiteral("嵌套（nested）"));
-    radarFormat->addItem(QStringLiteral("平铺（flat）"));
-    radarFormat->setToolTip(QStringLiteral("必须与发送端设置一致；切换后等待新的雷达数据。"));
-    connect(radarFormat, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
-        rm2027::setRadarWireFormat(index == 0 ? rm2027::RadarWireFormat::NestedMessage : rm2027::RadarWireFormat::FlatPackedUint32);
-        radarAge_.invalidate();
-        radar_->setText(QStringLiteral("雷达格式已切换，等待新数据"));
-        std::lock_guard<std::mutex> lock(recordsMutex_);
-        records_.erase("RadarInfoToClient");
-    });
-    formatLayout->addWidget(radarFormat);
-    formatLayout->addStretch();
-    auto *flip = new QPushButton(QStringLiteral("切换视角"));
-    flip->setCursor(Qt::PointingHandCursor);
-    connect(flip, &QPushButton::clicked, map_, &Map::flip); formatLayout->addWidget(flip);
-    mapLayout->addLayout(formatLayout);
-    auto *right = panel(QStringLiteral("敌方机器人   /   ENEMY UNIT"), rightLayout, "enemyPanel");
-    enemy_ = new QListWidget; enemy_->setSelectionMode(QAbstractItemView::NoSelection); enemy_->setFocusPolicy(Qt::NoFocus); rightLayout->addWidget(enemy_);
+    position_->setWordWrap(true);
+    radar_->setWordWrap(true);
+    position_->hide();
+    radar_->hide();
+    position_->setParent(scorePanel);
+    radar_->setParent(scorePanel);
+
+    auto *allyPanel = panel(QStringLiteral("我方"), allyLayout, "allyPanel");
+    auto *enemyPanel = panel(QStringLiteral("对方"), enemyLayout, "enemyPanel");
+    ally_ = new WatermarkedList;
+    enemy_ = new WatermarkedList;
+    for (auto *list : {ally_, enemy_}) {
+        list->setSelectionMode(QAbstractItemView::NoSelection);
+        list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        list->setSpacing(1);
+    }
+    allyLayout->addWidget(ally_);
+    enemyLayout->addWidget(enemy_);
     showHealthPlaceholder(QStringLiteral("等待数据"));
-    top->addWidget(left, 1); top->addWidget(mapPanel, 3); top->addWidget(right, 1);
-    outer->addLayout(top, 3);
-    auto *bottom = new QHBoxLayout;
-    QVBoxLayout *eventLayout, *metricsLayout, *videoLayout;
-    auto *eventPanel = panel(QStringLiteral("战场事件   /   LATEST"), eventLayout);
-    events_ = new QListWidget; eventLayout->addWidget(events_);
-    auto *metrics = panel(QStringLiteral("战场数据   /   FIELD OVERVIEW"), metricsLayout);
-    base_ = label(QStringLiteral("基地血量　等待数据"), "metric");
-    economy_ = label(QStringLiteral("剩余经济　等待数据"), "metric");
-    damage_ = label(QStringLiteral("累计伤害　等待数据"), "metric");
-    outer->insertWidget(1, base_);
+    auto *eventPanel = panel(QStringLiteral("战场事件"), eventLayout);
+    events_ = new WatermarkedList;
+    eventLayout->addWidget(events_);
+
+    auto *localPanel = new QWidget;
+    auto *local = new QHBoxLayout(localPanel);
+    const QStringList names{QStringLiteral("本机血量"), QStringLiteral("可用弹量"), QStringLiteral("热量"), QStringLiteral("复活")};
+    for (int i = 0; i < static_cast<int>(localStatus_.size()); ++i) {
+        auto *metric = new QVBoxLayout;
+        metric->addWidget(label(names.at(i), "caption"));
+        localStatus_[i] = label(QStringLiteral("--"), "localValue");
+        metric->addWidget(localStatus_[i]);
+        local->addLayout(metric, 1);
+    }
+    mapDock_ = addModule("map", QStringLiteral("战场地图 · 示意图"), mapPanel);
+    videoDock_ = addModule("video", QStringLiteral("图传"), videoPanel);
+    sidebarModules_ = {
+        videoDock_,
+        addModule("ally", QStringLiteral("我方机器人"), allyPanel),
+        addModule("enemy", QStringLiteral("对方机器人"), enemyPanel),
+        addModule("events", QStringLiteral("战场事件"), eventPanel)
+    };
+    localPanel->setFixedHeight(58);
+    shellLayout->addWidget(localPanel);
+
+    metricsPage_ = panel(QStringLiteral("场地与设备"), metricsLayout);
+    economy_ = label(QStringLiteral("剩余经济：等待数据"), "caption");
+    damage_ = label(QStringLiteral("累计伤害：等待数据"), "caption");
+    situation_ = new QListWidget;
     metricsLayout->addWidget(economy_);
     metricsLayout->addWidget(damage_);
-    situation_ = new QListWidget;
-    situation_->addItem(QStringLiteral("机器人和场地状态：等待数据"));
-    metricsLayout->addWidget(situation_, 1);
-    auto *videoPanel = panel(QStringLiteral("图传画面   /   VIDEO"), videoLayout);
-    videoView_ = label(QStringLiteral("等待图传接入"), "video");
-    videoView_->setAlignment(Qt::AlignCenter);
-    videoView_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-    videoView_->setMinimumSize(250, 140);
-    videoStatus_ = label(QStringLiteral("未接收画面"), "caption");
-    videoLayout->addWidget(videoView_, 1); videoLayout->addWidget(videoStatus_);
-    auto *switchView = new QPushButton(QStringLiteral("放大图传"));
-    bar->addWidget(switchView);
-    bottom->addWidget(eventPanel, 4);
-    bottom->addWidget(metrics, 7);
-    bottom->addWidget(videoPanel, 5);
-    connect(switchView, &QPushButton::clicked, this, [top, bottom, mapPanel, videoPanel, switchView] {
-        const bool enlarge = bottom->indexOf(videoPanel) >= 0;
-        top->removeWidget(enlarge ? mapPanel : videoPanel);
-        bottom->removeWidget(enlarge ? videoPanel : mapPanel);
-        top->insertWidget(1, enlarge ? videoPanel : mapPanel, 3);
-        bottom->insertWidget(2, enlarge ? mapPanel : videoPanel, 5);
-        switchView->setText(enlarge ? QStringLiteral("返回地图") : QStringLiteral("放大图传"));
+    metricsLayout->addWidget(situation_);
+    setWindowIcon(QIcon(brand::logo(128)));
+
+    setupDetails();
+    sidebarModules_.append(detailsDock_);
+    defaultSidebar_ = sidebarModules_;
+    arrangeModules();
+    detailsDock_->installEventFilter(this);
+    auto *fullShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
+    fullShortcut->setAutoRepeat(false);
+    connect(fullShortcut, &QShortcut::activated, this, [this] {
+        const bool full = !isFullScreen();
+        setWindowState(full ? windowState() | Qt::WindowFullScreen
+                            : windowState() & ~Qt::WindowFullScreen);
+        preferences().setValue("view/fullScreen", full);
     });
-    outer->addLayout(bottom, 2);
-    outer->addWidget(label(QStringLiteral("<span style='color:#e8a33d;font-weight:bold;letter-spacing:2px'>HANJIANG</span>　/　深圳技术大学悍匠战队　　·　　-- 表示字段未提供或数据不可用"), "caption"));
-    setCentralWidget(root);
+
     setStyleSheet(R"(
-        QWidget { background: transparent; color: #e8eff4; font-family: 'Inter', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Zen Hei', sans-serif; font-size: 14px; }
-        QMainWindow, QWidget#root { background: qradialgradient(cx:0.06, cy:0, radius:1.1, fx:0.06, fy:0, stop:0 #2a1d0b, stop:0.28 #0d1218, stop:1 #06090d); }
-        QDialog, QPlainTextEdit { background: #0b1218; }
-        QToolTip { background: #131c26; color: #ffc971; border: 1px solid #e8a33d; padding: 4px 8px; }
-
-        QFrame#topBar { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 rgba(232,163,61,46), stop:0.35 rgba(14,22,33,215), stop:1 rgba(14,22,33,215)); border: 1px solid rgba(232,163,61,95); border-radius: 14px; }
-        QFrame#panel, QFrame#allyPanel, QFrame#enemyPanel { background: rgba(14,22,33,205); border: 1px solid rgba(232,163,61,75); border-radius: 12px; }
-        QFrame#goldRule { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #e8a33d, stop:0.6 rgba(232,163,61,40), stop:1 rgba(232,163,61,0)); border: 0; max-height: 1px; }
-        QFrame#scoreCardRed { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 rgba(255,90,103,70), stop:1 rgba(255,90,103,14)); border: 1px solid rgba(255,90,103,150); border-radius: 12px; }
-        QFrame#scoreCardBlue { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 rgba(62,168,255,70), stop:1 rgba(62,168,255,14)); border: 1px solid rgba(62,168,255,150); border-radius: 12px; }
-        QFrame#clockCard { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 rgba(232,163,61,60), stop:1 rgba(232,163,61,10)); border: 1px solid #e8a33d; border-radius: 12px; }
-
-        QLabel { background: transparent; border: none; }
-        QLabel#brand { font-weight: 800; color: #ffc971; font-size: 30px; }
-        QLabel#brandSub { color: #c9d4dc; font-size: 10px; letter-spacing: 1px; }
-        QLabel#brandTag { color: #e8a33d; font-size: 10px; font-weight: bold; }
-        QLabel#caption { color: #9fb1bf; font-size: 12px; }
-        QLabel#round { color: #ffc971; font-size: 12px; }
-        QLabel#section { color: #fff4dc; font-weight: bold; font-size: 16px; padding-left: 10px; border-left: 4px solid #e8a33d; }
-        QLabel#panelTitle { color: #fff4dc; font-weight: bold; font-size: 15px; }
-        QLabel#panelTag { color: #e8a33d; font-size: 10px; font-weight: bold; }
-        QLabel#redScore { color: #ff6670; font-weight: 800; font-size: 34px; }
-        QLabel#blueScore { color: #61c8ff; font-weight: 800; font-size: 34px; }
-        QLabel#clock { color: #fff4dc; font-size: 32px; font-weight: 800; }
-        QLabel#status { color: #ffc971; background: rgba(232,163,61,28); border: 1px solid rgba(232,163,61,120); border-radius: 13px; padding: 5px 14px; font-weight: bold; }
-        QLabel#status[up="true"] { color: #4ade9a; background: rgba(74,222,154,26); border-color: rgba(74,222,154,130); }
-        QLabel#alert { color: #ffd9a0; background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 rgba(232,163,61,60), stop:1 rgba(232,163,61,14)); border: 1px solid rgba(232,163,61,130); border-left: 4px solid #e8a33d; border-radius: 8px; padding: 7px 14px; font-weight: bold; }
-        QLabel#alert[ok="true"] { color: #b9f3d6; background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 rgba(74,222,154,50), stop:1 rgba(74,222,154,10)); border-color: rgba(74,222,154,120); border-left-color: #4ade9a; }
-        QLabel#metric { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 rgba(232,163,61,36), stop:1 rgba(22,33,48,200)); border: 1px solid rgba(232,163,61,80); border-top: 2px solid #e8a33d; border-radius: 9px; padding: 11px 14px; color: #fff4dc; font-weight: 600; }
-        QLabel#robotNum { color: #2a1a04; font-weight: 800; font-size: 16px; border-radius: 8px; background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #ffc971, stop:1 #e8a33d); }
-        QLabel#robotName { color: #f2f6f5; font-size: 15px; font-weight: bold; }
-        QLabel#robotState, QLabel#robotValue { color: #aebdc7; font-size: 12px; }
-        QLabel#video { background: #080d13; border: 1px dashed rgba(232,163,61,130); border-radius: 9px; color: #aebdc7; }
-
-        QListWidget { background: transparent; border: 0; outline: 0; }
-        QListWidget::item { color: #d3e0ea; padding: 8px 6px; border-bottom: 1px dashed rgba(232,163,61,60); }
-        QFrame#allyPanel QListWidget::item, QFrame#enemyPanel QListWidget::item { background: transparent; border: 0; padding: 0; margin-bottom: 7px; }
-        QListWidget::item:selected { background: rgba(232,163,61,40); color: #fff4dc; }
-
-        QPushButton { color: #2a1a04; font-weight: bold; background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffc971, stop:1 #e8a33d); border: 1px solid #ffd9a0; border-radius: 15px; padding: 6px 20px; }
-        QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffe0a3, stop:1 #ffc971); border-color: #fff4dc; }
-        QPushButton:pressed { background: #c98a2c; }
-        QComboBox { color: #fff4dc; background: rgba(22,33,48,230); border: 1px solid rgba(232,163,61,120); border-radius: 8px; padding: 4px 10px; }
-        QComboBox:hover { border-color: #ffc971; }
-        QComboBox QAbstractItemView { background: #111a25; color: #fff4dc; border: 1px solid #e8a33d; selection-background-color: rgba(232,163,61,90); outline: 0; }
-        QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }
-        QScrollBar::handle:vertical { background: rgba(232,163,61,120); border-radius: 3px; min-height: 28px; }
-        QScrollBar::handle:vertical:hover { background: #e8a33d; }
-        QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
-        QScrollBar:horizontal { background: transparent; height: 8px; margin: 2px; }
-        QScrollBar::handle:horizontal { background: rgba(232,163,61,120); border-radius: 3px; min-width: 28px; }
-        QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
-        QSplitter::handle { background: rgba(232,163,61,60); }
+        QWidget { color:#e5ebf2; font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:16px; }
+        QMainWindow, QToolBar { background:#10141b; }
+        QLabel#moduleTitle { background:#273240; padding:4px 8px; border-radius:4px; }
+        QSplitter#workspace::handle, QSplitter#moduleSidebar::handle { background:#334052; border-radius:3px; }
+        QSplitter#workspace::handle:hover, QSplitter#moduleSidebar::handle:hover { background:#cd994d; }
+        QMenu::item:selected, QToolButton:hover { background:#323e50; }
+        QFrame#panel, QFrame#allyPanel, QFrame#enemyPanel { background:#171d26; border:1px solid #303946; border-radius:8px; }
+        QFrame#goldRule { background:#323c48; border:none; }
+        QLabel#caption { color:#b8c4d1; }
+        QLabel#brand, QLabel#panelTitle { font-weight:700; }
+        QLabel#brand, QLabel#clock { color:#ffd18b; }
+        QLabel#redScore, QLabel#baseRed { color:#ff7e8b; }
+        QLabel#blueScore, QLabel#baseBlue { color:#78bbff; }
+        QLabel#clock, QLabel#redScore, QLabel#blueScore { font-size:38px; font-weight:700; min-width:75px; }
+        QLabel#baseRed, QLabel#baseBlue, QLabel#localValue { font-size:20px; font-weight:700; }
+        QLabel#alert { background:#342719; color:#ffe0a3; padding:6px 10px; border-radius:5px; }
+        QLabel#alert[ok="true"] { background:#1b2927; color:#badbd1; }
+        QPushButton { background:#242d39; border:1px solid #424e60; border-radius:5px; padding:5px 12px; }
+        QPushButton:hover { background:#323e50; }
+        QPushButton:focus, QComboBox:focus { border:1px solid #ffd18b; }
+        QListWidget, QPlainTextEdit { background:#111720; border:1px solid #303946; }
+        QListWidget::item { padding:2px; }
+        QScrollBar:vertical { background:#111720; width:8px; }
+        QScrollBar::handle:vertical { background:#526376; border-radius:3px; min-height:22px; }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
     )");
+    resize(1366, 768);
+    workspace_->setSizes({860, 490});
+}
+
+QWidget *Window::addModule(const char *id, const QString &title, QWidget *content) {
+    auto *module = new QWidget(workspace_->widget(0));
+    module->setObjectName(QString::fromLatin1(id));
+    auto *layout = new QVBoxLayout(module);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(2);
+    auto *handle = new ModuleTitle(title);
+    layout->addWidget(handle);
+    layout->addWidget(content, 1);
+    if (auto *heading = content->findChild<QWidget *>("panelTitle")) heading->hide();
+    if (auto *rule = content->findChild<QWidget *>("goldRule")) rule->hide();
+    handle->canDrop = [this, module](QWidget *source) {
+        if (source == module) return false;
+        const auto *primary = mapPriority_ ? mapDock_ : videoDock_;
+        if (source == primary || module == primary)
+            return (source == mapDock_ || source == videoDock_) &&
+                   (module == mapDock_ || module == videoDock_);
+        return sidebarModules_.contains(source) && sidebarModules_.contains(module);
+    };
+    handle->dropped = [this, module](QWidget *source) { moveModule(source, module); };
+    return module;
+}
+
+void Window::arrangeModules() {
+    auto *primary = mapPriority_ ? mapDock_ : videoDock_;
+    const auto previousSizes = sidebar_->sizes();
+    primaryLayout_->addWidget(primary);
+    primary->show();
+    for (int index = 0; index < sidebarModules_.size(); ++index) {
+        auto *module = sidebarModules_.at(index);
+        sidebar_->insertWidget(index, module);
+        if (module != detailsDock_) module->show();
+    }
+    if (previousSizes.size() == sidebar_->count())
+        sidebar_->setSizes(previousSizes);
+}
+
+void Window::moveModule(QWidget *source, QWidget *target) {
+    auto *primary = mapPriority_ ? mapDock_ : videoDock_;
+    if (source == primary || target == primary) {
+        focusPrimaryView();
+        return;
+    }
+    sidebarModules_.move(sidebarModules_.indexOf(source), sidebarModules_.indexOf(target));
+    arrangeModules();
+}
+
+void Window::focusPrimaryView() {
+    auto *primary = mapPriority_ ? mapDock_ : videoDock_;
+    auto *alternate = mapPriority_ ? videoDock_ : mapDock_;
+    sidebarModules_[sidebarModules_.indexOf(alternate)] = primary;
+    mapPriority_ = !mapPriority_;
+    arrangeModules();
+}
+
+bool Window::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::Resize) {
+        const bool narrow = static_cast<QResizeEvent *>(event)->size().width() < 460;
+        if (watched == detailsDock_) {
+            if (auto *split = detailsDock_->findChild<QSplitter *>())
+                split->setOrientation(narrow ? Qt::Vertical : Qt::Horizontal);
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void Window::closeEvent(QCloseEvent *event) {
+    auto settings = preferences();
+    QStringList order;
+    for (auto *module : sidebarModules_) order << module->objectName();
+    settings.setValue("view/workspaceOrder", order);
+    settings.setValue("view/workspaceSizes", workspace_->saveState());
+    settings.setValue("view/sidebarSizes", sidebar_->saveState());
+    QMainWindow::closeEvent(event);
+}
+
+void Window::applyWindowPreferences() {
+    const auto settings = preferences();
+    const auto order = settings.value("view/workspaceOrder").toStringList();
+    QList<QWidget *> restored;
+    for (const auto &name : order) {
+        auto *module = findChild<QWidget *>(name);
+        if (module && (defaultSidebar_.contains(module) || module == mapDock_) &&
+            !restored.contains(module))
+            restored.append(module);
+    }
+    if (restored.size() == defaultSidebar_.size() &&
+        restored.contains(mapDock_) != restored.contains(videoDock_) &&
+        restored.contains(detailsDock_) &&
+        restored.contains(defaultSidebar_[1]) && restored.contains(defaultSidebar_[2]) &&
+        restored.contains(defaultSidebar_[3])) {
+        sidebarModules_ = restored;
+        mapPriority_ = !restored.contains(mapDock_);
+        arrangeModules();
+    }
+    workspace_->restoreState(settings.value("view/workspaceSizes").toByteArray());
+    sidebar_->restoreState(settings.value("view/sidebarSizes").toByteArray());
+    if (settings.value("view/fullScreen", false).toBool())
+        setWindowState(windowState() | Qt::WindowFullScreen);
 }
