@@ -150,6 +150,8 @@ private:
     QVector<QPair<QWidget *, QRect>> hudGeometry_;
     QVector<QPair<QLabel *, int>> hudFonts_;
     qreal hudScale_ = 1.0;
+    std::map<std::string, uint64_t> hudCounts_;
+    bool refreshPending_ = false;
 
     // 兑换面板（O 键）
     QWidget *exchangePanel_ = nullptr;

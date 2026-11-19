@@ -1,5 +1,6 @@
 #include "window.h"
 #include "map.h"
+#include "topics.h"
 #include "window_helpers.h"
 #include <QFrame>
 #include <QHBoxLayout>
@@ -102,13 +103,13 @@ void Window::markStale() {
             label->setStyleSheet(stale ? QStringLiteral("color:#6d7885;") : QString());
         }
     };
-    apply("GameStatus", 3000, {scoreRed_, scoreBlue_, clock_, round_});
-    apply("GlobalUnitStatus", 3000, {damage_});
-    apply("GlobalLogisticsStatus", 3000, {economy_});
-    apply("RobotPosition", 3000, {position_});
-    apply("RadarInfoToClient", 5000, {radar_});
-    apply("RobotDynamicStatus", 3000, {localStatus_[0], localStatus_[1], localStatus_[2]});
-    apply("RobotRespawnStatus", 3000, {localStatus_[3]});
+    apply("GameStatus", topics::timeoutMs("GameStatus"), {scoreRed_, scoreBlue_, clock_, round_});
+    apply("GlobalUnitStatus", topics::timeoutMs("GlobalUnitStatus"), {damage_});
+    apply("GlobalLogisticsStatus", topics::timeoutMs("GlobalLogisticsStatus"), {economy_});
+    apply("RobotPosition", topics::timeoutMs("RobotPosition"), {position_});
+    apply("RadarInfoToClient", topics::timeoutMs("RadarInfoToClient"), {radar_});
+    apply("RobotDynamicStatus", topics::timeoutMs("RobotDynamicStatus"), {localStatus_[0], localStatus_[1], localStatus_[2]});
+    apply("RobotRespawnStatus", topics::timeoutMs("RobotRespawnStatus"), {localStatus_[3]});
 }
 
 void Window::showHealth(const std::vector<uint32_t> &health) {
@@ -161,9 +162,12 @@ void Window::updateAlert() {
             if (age < 0) issues << QString::fromUtf8(name) + QStringLiteral("未就绪");
             else if (age > thresholdMs) issues << QString::fromUtf8(name) + QStringLiteral("已 %1 秒未更新").arg(age / 1000);
         };
-        report("GameStatus", 3000, "比赛状态");
-        report("GlobalUnitStatus", 3000, "机器人血量");
-        report("RadarInfoToClient", 5000, "雷达");
+        report("GameStatus", topics::timeoutMs("GameStatus"), "比赛状态");
+        report("GlobalUnitStatus", topics::timeoutMs("GlobalUnitStatus"), "机器人血量");
+        report("GlobalLogisticsStatus", topics::timeoutMs("GlobalLogisticsStatus"), "经济");
+        report("RobotDynamicStatus", topics::timeoutMs("RobotDynamicStatus"), "本机状态");
+        report("RobotModuleStatus", topics::timeoutMs("RobotModuleStatus"), "模块状态");
+        report("RadarInfoToClient", topics::timeoutMs("RadarInfoToClient"), "雷达");
         if (!health_.empty() && health_.size() != 8) issues << QStringLiteral("机器人血量数据长度异常");
     }
     if (video_ && !video_->running()) issues << QStringLiteral("图传接收器未启动");

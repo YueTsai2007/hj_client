@@ -179,14 +179,20 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
             self->position_->setText(QStringLiteral("机器人 %1：X %2　Y %3　Z %4　朝向 %5（原始值）")
                 .arg(fieldValue(fields, "robotId"), fieldValue(fields, "x"), fieldValue(fields, "y"), fieldValue(fields, "z"), fieldValue(fields, "yaw")));
             self->positionAge_.restart();
-            if (self->connected_ && self->demoMode_ &&
+            if (self->connected_ &&
                 fields.value("robotId").isDouble() && fields.value("x").isDouble() && fields.value("y").isDouble()) {
-                // Demo publisher uses a normalized field, with +Y pointing up.
-                const uint robotId = static_cast<uint>(fields.value("robotId").toDouble());
-                const QPointF pos(fields.value("x").toDouble(), fields.value("y").toDouble());
-                const qreal yaw = fields.value("yaw").isDouble() ? fields.value("yaw").toDouble() : qQNaN();
-                self->map_->setRobotPosition(robotId, pos, yaw);
-                if (self->mapHud_) self->mapHud_->setRobotPosition(robotId, pos, yaw);
+                // 协议 0x0203：坐标为米，原点在红方补给站一角，X 向蓝方（场地 28m×15m）。
+                // demo 服务器直接发 0~1 归一化值，这里按量级自动判断。
+                qreal x = fields.value("x").toDouble();
+                qreal y = fields.value("y").toDouble();
+                if (x > 1.5 || y > 1.5) { x /= 28.0; y /= 15.0; }
+                if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+                    const uint robotId = static_cast<uint>(fields.value("robotId").toDouble());
+                    const QPointF pos(x, y);
+                    const qreal yaw = fields.value("yaw").isDouble() ? fields.value("yaw").toDouble() : qQNaN();
+                    self->map_->setRobotPosition(robotId, pos, yaw);
+                    if (self->mapHud_) self->mapHud_->setRobotPosition(robotId, pos, yaw);
+                }
             }
         }, Qt::QueuedConnection);
     });
@@ -299,14 +305,27 @@ void Window::recordMessage(std::unique_ptr<rm2027::Message> message) {
     if (!message) return;
     const std::string topic = message->name();
     QJsonObject fields = toFields(*message);
-    std::lock_guard<std::mutex> lock(recordsMutex_);
-    auto &record = records_[topic];
-    record.message = std::shared_ptr<const rm2027::Message>(std::move(message));
-    record.fields = std::move(fields);
-    record.error.clear();
-    record.receivedAt = QDateTime::currentMSecsSinceEpoch();
-    record.receivedTick = monotonicMs();
-    ++record.count;
+    {
+        std::lock_guard<std::mutex> lock(recordsMutex_);
+        auto &record = records_[topic];
+        record.message = std::shared_ptr<const rm2027::Message>(std::move(message));
+        record.fields = std::move(fields);
+        record.error.clear();
+        record.receivedAt = QDateTime::currentMSecsSinceEpoch();
+        record.receivedTick = monotonicMs();
+        ++record.count;
+    }
+
+    // 收到即更新：同一轮事件循环内多次消息合并成一次刷新
+    if (!refreshPending_) {
+        refreshPending_ = true;
+        QMetaObject::invokeMethod(this, [this] {
+            refreshPending_ = false;
+            markStale();
+            refreshSummary();
+            updateAlert();
+        }, Qt::QueuedConnection);
+    }
 }
 
 QJsonObject Window::messageFields(const MessageRecord &record) {

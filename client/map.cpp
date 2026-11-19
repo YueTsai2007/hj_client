@@ -7,7 +7,14 @@
 #include <QRadialGradient>
 #include <cmath>
 
-Map::Map(QWidget *parent) : QWidget(parent) { setMinimumSize(185, 115); }
+Map::Map(QWidget *parent) : QWidget(parent) {
+    setMinimumSize(185, 115);
+    // 上赛场后可用环境变量微调底图偏置（单位：画布像素，900×482 坐标系）
+    calX_ = qEnvironmentVariable("HJ_MAP_CAL_X", "0").toDouble();
+    calY_ = qEnvironmentVariable("HJ_MAP_CAL_Y", "0").toDouble();
+    calW_ = qEnvironmentVariable("HJ_MAP_CAL_W", "0").toDouble();
+    calH_ = qEnvironmentVariable("HJ_MAP_CAL_H", "0").toDouble();
+}
 void Map::flip() { flipped_ = !flipped_; schematic_ = {}; update(); }
 void Map::setRobotPosition(uint id, QPointF position, qreal yaw) {
     const uint number = id % 100;
@@ -57,7 +64,12 @@ void Map::paintEvent(QPaintEvent *) {
     painter.drawPixmap(0, 0, schematic_);
     painter.setRenderHint(QPainter::Antialiasing);
     const qreal fit = qMin(width() / 900.0, height() / 482.0);
-    const QPointF center(width() / 2.0, height() / 2.0);
+    // 几何映射：画布内场地矩形 (20,11) 860×460 精确对应 28m×15m；
+    // calX_/calY_ 只用于“上赛场后”对齐底图与坐标，平时为 0。
+    const QPointF fieldOrigin(20 * fit + (width() - 900 * fit) / 2.0,
+                              11 * fit + (height() - 482 * fit) / 2.0);
+    const qreal fieldWidth = (860 + calW_) * fit;
+    const qreal fieldHeight = (460 + calH_) * fit;
     const QList<int> numberOrder{1, 3, 4, 7};
     // 标记尺寸随控件大小缩放：小地图上不再是大圆点
     const qreal radius = qBound(3.0, qMin(width(), height()) / 46.0, 11.0);
@@ -65,9 +77,9 @@ void Map::paintEvent(QPaintEvent *) {
     const qreal barHeight = qMax(2.0, radius * 0.34);
     for (auto it = robots_.cbegin(); it != robots_.cend(); ++it) {
         const auto position = it->position;
-        const qreal direction = flipped_ ? -1 : 1;
-        const auto point = center + QPointF((position.x() - .5) * 820,
-                                           (.5 - position.y()) * 430) * fit * direction;
+        const qreal nx = flipped_ ? 1.0 - position.x() : position.x();
+        const auto point = fieldOrigin + QPointF(nx * fieldWidth + calX_ * fit,
+                                                 (1.0 - position.y()) * fieldHeight + calY_ * fit);
         const uint id = it.key();
         const int index = numberOrder.indexOf(static_cast<int>(id % 100));
         const size_t hpIndex = static_cast<size_t>((id >= 100 ? 4 : 0) + qMax(0, index));

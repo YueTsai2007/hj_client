@@ -834,6 +834,7 @@ void Window::layoutCombatHud(const QRectF &content) {
 
 void Window::updateCombatHud() {
     if (!combat_) return;
+    // 收到即更新：由 recordMessage 合并触发，这里不再做频率门控。
     const auto number = [](const QJsonObject &object, const char *key, const QString &fallback) {
         const auto value = object.value(QLatin1String(key));
         return value.isDouble() ? QString::number(value.toInt()) : fallback;
