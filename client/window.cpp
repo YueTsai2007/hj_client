@@ -320,14 +320,14 @@ void Window::setupUi() {
     auto *toolbar = addToolBar(QStringLiteral("窗口布局"));
     toolbar->setObjectName("layoutToolbar");
     toolbar->setMovable(false);
-    auto *switchView = toolbar->addAction(QStringLiteral("切换地图 / 图传  F2"));
+    auto *switchView = toolbar->addAction(QStringLiteral("图传 / 地图  F2"));
     switchView->setShortcut(QKeySequence(Qt::Key_F2));
     switchView->setAutoRepeat(false);
     connect(switchView, &QAction::triggered, this, [this] {
-        if (combat_ && mainStack_ && mainStack_->currentWidget() == combat_)
-            combat_->stack()->setCurrentIndex(1 - combat_->stack()->currentIndex());
-        else
-            focusPrimaryView();
+        if (!combat_ || !mainStack_) return;
+        // 只在作战视图里切“图传/地图”；数据视图两者同时显示，不参与切换
+        if (mainStack_->currentWidget() != combat_) mainStack_->setCurrentWidget(combat_);
+        combat_->stack()->setCurrentIndex(1 - combat_->stack()->currentIndex());
     });
     auto *crosshairToggle = toolbar->addAction(QStringLiteral("准星  F4"));
     crosshairToggle->setCheckable(true);
@@ -348,19 +348,6 @@ void Window::setupUi() {
         if (!mainStack_ || !combat_) return;
         mainStack_->setCurrentIndex(mainStack_->currentWidget() == combat_ ? 1 : 0);
         updateCombatHud();
-    });
-    connect(toolbar->addAction(QStringLiteral("紧凑布局  F5")), &QAction::triggered, this, [this] {
-        if (!mainStack_) return;
-        if (compactPage_ && mainStack_->currentWidget() == compactPage_) {
-            arrangeModules();
-            mainStack_->setCurrentWidget(dataPage_);
-            return;
-        }
-        if (!compactPage_) {
-            buildCompactPage();
-            mainStack_->addWidget(compactPage_);
-        }
-        mainStack_->setCurrentWidget(compactPage_);
     });
     connect(toolbar->addAction(QStringLiteral("消息详情")), &QAction::triggered, this, &Window::showDetails);
     connect(toolbar->addAction(QStringLiteral("恢复默认布局")), &QAction::triggered, this, [this] {
@@ -383,25 +370,6 @@ void Window::setupUi() {
     map_ = new Map;
     map_->setProperty("demoMode", demoMode_);
     mapLayout->addWidget(map_, 1);
-    // 地图控制行：切换视角 + 镜像勾选（操作手不用快捷键也能切）
-    auto *mapControls = new QHBoxLayout;
-    mapControls->setSpacing(8);
-    auto *flip = new QPushButton(QStringLiteral("切换视角"));
-    connect(flip, &QPushButton::clicked, map_, &Map::flip);
-    auto *mirrorCheck = new QCheckBox(QStringLiteral("镜像"));
-    const bool mirrorOn = preferences().value("view/mirror", qEnvironmentVariableIntValue("HJ_MAP_MIRROR") == 1).toBool();
-    mirrorCheck->setChecked(mirrorOn);
-    map_->setMirror(mirrorOn);
-    connect(mirrorCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (map_) map_->setMirror(on);
-        if (mapHud_) mapHud_->setMirror(on);
-        auto settings = preferences();
-        settings.setValue("view/mirror", on);
-    });
-    mapControls->addWidget(flip);
-    mapControls->addWidget(mirrorCheck);
-    mapControls->addStretch();
-    mapLayout->addLayout(mapControls);
     position_ = label(QStringLiteral("机器人坐标：等待数据"), "caption");
     radar_ = label(QStringLiteral("雷达坐标：等待数据"), "caption");
     position_->setWordWrap(true);
@@ -558,11 +526,6 @@ void Window::setupUi() {
     mainStack_->addWidget(dataPage_);
     mainStack_->setCurrentWidget(combat_);
     if (qEnvironmentVariableIntValue("HJ_START_DATA_VIEW") == 1) mainStack_->setCurrentWidget(dataPage_);
-    if (qEnvironmentVariableIntValue("HJ_COMPACT") == 1) {
-        buildCompactPage();
-        mainStack_->addWidget(compactPage_);
-        mainStack_->setCurrentWidget(compactPage_);
-    }
     if (qEnvironmentVariableIntValue("HJ_DOCKS") == 1) {
         buildDockPage();
         mainStack_->addWidget(dockPage_);
@@ -600,7 +563,6 @@ void Window::buildCombatView() {
     mapLayout->setContentsMargins(0, 0, 0, 0);
     mapHud_ = new Map;
     mapHud_->setProperty("demoMode", demoMode_);
-    mapHud_->setMirror(preferences().value("view/mirror", qEnvironmentVariableIntValue("HJ_MAP_MIRROR") == 1).toBool());
     mapLayout->addWidget(mapHud_);
     stack->addWidget(mapPage);
     stack->setCurrentIndex(0);
