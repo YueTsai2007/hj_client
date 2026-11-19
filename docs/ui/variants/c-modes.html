@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方案 C · 模式切换</title>
+<style>
+  :root{--brand:#e8a33d;--brand2:#ffc971;--red:#ff5a67;--blue:#3ea8ff;
+    --txt:#eaf1f7;--muted:#8da0b3;--card:rgba(10,16,24,.9);--line:rgba(148,176,205,.18)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:#05080d;color:var(--txt);
+    font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif}
+  .stage{width:1920px;height:1080px;padding:18px 24px;display:flex;flex-direction:column;gap:14px;
+    background:radial-gradient(1200px 600px at 50% 0%,#0c1620,#05080d 70%)}
+  .head{display:flex;align-items:center;gap:18px}
+  .title{font-size:15px;letter-spacing:.3em;color:var(--muted)}
+  .tabs{display:flex;gap:8px;margin-left:auto}
+  .tab{font-size:13px;padding:7px 16px;border:1px solid var(--line);border-radius:8px;color:var(--muted)}
+  .tab.on{background:rgba(232,163,61,.16);border-color:rgba(232,163,61,.55);color:var(--brand2)}
+  .row{flex:1;display:flex;gap:22px;min-height:0}
+  .pane{flex:1 1 0;width:0;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .screen{flex:1 1 0;min-height:0;position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line);
+    background:radial-gradient(700px 420px at 50% 45%,#16232e,#070c12 75%)}
+  .screen .ph{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    color:#40546a;font-size:15px;letter-spacing:.2em}
+  .caption{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);padding:0 4px}
+  .caption b{color:var(--brand2);font-weight:600}
+  /* 作战视图内的 HUD */
+  .hud{position:absolute;background:rgba(8,13,20,.72);border:1px solid var(--line);border-radius:9px}
+  .hud.base{top:14px;padding:6px 12px}
+  .hud.base.l{left:14px} .hud.base.r{right:14px}
+  .hud.base .k{font-size:9px;color:var(--muted);letter-spacing:.1em}
+  .hud.base .v{font-size:22px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+  .hud.base.l .v{color:var(--red)} .hud.base.r .v{color:var(--blue)}
+  .hud.clock{left:50%;top:12px;transform:translateX(-50%);text-align:center;padding:4px 16px}
+  .hud.clock .t{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}
+  .hud.clock .p{font-size:9px;color:var(--brand2);letter-spacing:.2em}
+  .hud.self{left:14px;bottom:14px;padding:8px 12px;display:flex;gap:16px;align-items:center}
+  .hud.self .id{font-size:18px;font-weight:800;color:var(--brand2)}
+  .hud.self .kpi .k{font-size:9px;color:var(--muted)}
+  .hud.self .kpi .v{font-size:15px;font-weight:700}
+  .hud.map{right:14px;bottom:14px;width:220px;padding:6px}
+  .field{position:relative;height:120px;border-radius:6px;overflow:hidden;
+    background:linear-gradient(180deg,#0d1a22,#0a141b);border:1px solid rgba(232,163,61,.22)}
+  .grid{position:absolute;inset:0;background-image:linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),
+    linear-gradient(0deg,rgba(255,255,255,.05) 1px,transparent 1px);background-size:18px 18px}
+  .mk{position:absolute;width:11px;height:11px;border-radius:50%;transform:translate(-50%,-50%);
+    font-size:7px;font-weight:700;display:grid;place-items:center;color:#fff;border:1px solid rgba(255,255,255,.8)}
+  .mk.r{background:rgba(255,90,103,.9)} .mk.b{background:rgba(62,168,255,.9)}
+  /* 战术视图 */
+  .tac{position:absolute;inset:0;display:flex;gap:10px;padding:12px}
+  .tac .bigmap{flex:1.5;position:relative;border-radius:8px;overflow:hidden;
+    background:linear-gradient(180deg,#0d1a22,#0a141b);border:1px solid rgba(232,163,61,.22)}
+  .tac .side{flex:1;display:flex;flex-direction:column;gap:8px}
+  .row2{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:2px}
+  .bar{height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden;margin-bottom:8px}
+  .bar>i{display:block;height:100%}
+  .eco{display:flex;gap:14px;font-size:11px}
+  .eco b{font-size:14px;color:var(--txt)}
+  .warn{font-size:11px;color:#ffc46a}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="head">
+    <span class="title">方案 C · 模式切换（两套界面，一键切）</span>
+    <div class="tabs"><span class="tab on">作战视图 F1</span><span class="tab">战术视图 F2</span></div>
+  </div>
+
+  <div class="row">
+    <!-- 作战 -->
+    <div class="pane">
+      <div class="screen">
+        <span class="ph">1080P60 · H.265 主图传</span>
+        <div class="hud base l"><div class="k">己方基地</div><div class="v">5000</div></div>
+        <div class="hud base r"><div class="k">敌方基地</div><div class="v">4710</div></div>
+        <div class="hud clock"><div class="t">06:27</div><div class="p">比赛中</div></div>
+        <div class="hud self">
+          <span class="id">01</span>
+          <div class="kpi"><div class="k">血量</div><div class="v">480/500</div></div>
+          <div class="kpi"><div class="k">弹量</div><div class="v">97</div></div>
+          <div class="kpi"><div class="k">热量</div><div class="v">6/120</div></div>
+        </div>
+        <div class="hud map">
+          <div class="field">
+            <div class="grid"></div>
+            <span class="mk r" style="left:28%;top:40%">1</span>
+            <span class="mk b" style="left:70%;top:55%">1</span>
+          </div>
+        </div>
+      </div>
+      <div class="caption"><span>比赛时：<b>只看画面</b>，数据贴边</span><span>不需要找信息</span></div>
+    </div>
+
+    <!-- 战术 -->
+    <div class="pane">
+      <div class="screen">
+        <div class="tac">
+          <div class="bigmap">
+            <div class="grid"></div>
+            <span class="mk r" style="left:26%;top:38%;width:16px;height:16px">1</span>
+            <span class="mk r" style="left:38%;top:62%;width:16px;height:16px">3</span>
+            <span class="mk r" style="left:44%;top:30%;width:16px;height:16px">4</span>
+            <span class="mk r" style="left:20%;top:74%;width:16px;height:16px">7</span>
+            <span class="mk b" style="left:72%;top:36%;width:16px;height:16px">1</span>
+            <span class="mk b" style="left:64%;top:58%;width:16px;height:16px">3</span>
+            <span class="mk b" style="left:58%;top:70%;width:16px;height:16px">4</span>
+            <span class="mk b" style="left:78%;top:76%;width:16px;height:16px">7</span>
+          </div>
+          <div class="side">
+            <div style="font-size:10px;color:var(--muted);letter-spacing:.12em">我方机器人</div>
+            <div><div class="row2"><span>1 英雄</span><span>150/200</span></div><div class="bar"><i style="width:75%;background:#ff5a67"></i></div></div>
+            <div><div class="row2"><span>3 步兵</span><span>80/150</span></div><div class="bar"><i style="width:53%;background:#ff5a67"></i></div></div>
+            <div><div class="row2"><span>4 步兵</span><span>120/150</span></div><div class="bar"><i style="width:80%;background:#ff5a67"></i></div></div>
+            <div><div class="row2"><span>7 哨兵</span><span>350/400</span></div><div class="bar"><i style="width:88%;background:#ff5a67"></i></div></div>
+            <div style="font-size:10px;color:var(--muted);letter-spacing:.12em;margin-top:4px">对方机器人</div>
+            <div><div class="row2"><span>1 英雄</span><span>180/200</span></div><div class="bar"><i style="width:90%;background:#3ea8ff"></i></div></div>
+            <div><div class="row2"><span>3 步兵</span><span>115/150</span></div><div class="bar"><i style="width:77%;background:#3ea8ff"></i></div></div>
+            <div><div class="row2"><span>7 哨兵</span><span>330/400</span></div><div class="bar"><i style="width:82%;background:#3ea8ff"></i></div></div>
+            <div class="eco"><span>经济 <b>250</b></span><span>科技 <b>3</b></span><span>加密 <b>1</b></span></div>
+            <div class="warn">● 雷达 14 秒未更新</div>
+          </div>
+        </div>
+      </div>
+      <div class="caption"><span>按 F2：<b>全屏地图 + 全员状态</b></span><span>看局势，不看画面</span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

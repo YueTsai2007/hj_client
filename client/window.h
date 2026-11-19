@@ -2,6 +2,8 @@
 #include <QMainWindow>
 #include <QElapsedTimer>
 #include <QJsonObject>
+#include <QRect>
+#include <QVector>
 #include <array>
 #include <memory>
 #include <map>
@@ -10,13 +12,17 @@
 #include <vector>
 #include "rm2027/api/client.h"
 #include "rm2027/video/video_receiver.h"
-namespace google::protobuf { class Message; }
 class QLabel;
 class QProgressBar;
 class QListWidget;
 class Map;
+class CombatView;
+class Crosshair;
 class QTimer;
+class QStackedWidget;
 class QVBoxLayout;
+class QAction;
+class QSpinBox;
 class QSplitter;
 class QCloseEvent;
 class VideoView;
@@ -27,33 +33,59 @@ public:
     Window(const QString &host, quint16 port, const QString &id, quint16 videoPort);
     ~Window() override;
 private:
+    enum class Role { Hero, Infantry, Engineer, Aerial, Sentry, Dart, Unknown };
+    static Role roleOfId(uint number);
+    QString roleLabel() const;
+    bool roleNeedsPanel() const;
     void closeEvent(QCloseEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
     void setupUi();
+    void buildCombatView();
+    void layoutCombatHud(const QRectF &content);
+    void updateCombatHud();
+    void buildExchangePanel();
+    void toggleExchangePanel();
+    void updateExchangePanel();
+    void sendExchange();
+    void sendRespawn();
     void applyWindowPreferences();
     void setupDetails();
     void focusPrimaryView();
     QWidget *addModule(const char *id, const QString &title, QWidget *content);
     void arrangeModules();
+    void buildCompactPage();
     void moveModule(QWidget *source, QWidget *target);
     void addEvent(const QString &text);
     void start(const QString &host, quint16 port, const QString &id, quint16 videoPort);
     void updateVideo();
     void markStale();
+    qint64 dataAgeMs(const char *topic);
     void setBaseHealth(QLabel *label, QProgressBar *bar, const QString &health);
     void showHealth(const std::vector<uint32_t> &health);
     void showHealthPlaceholder(const QString &status);
     void updateAlert();
-    void recordRaw(const std::string &topic, const std::string &payload);
+    void recordMessage(std::unique_ptr<rm2027::Message> message);
+    static QJsonObject toFields(const rm2027::Message &message);
     QJsonObject messageFields(const std::string &topic);
     void refreshDetails();
     void refreshSummary();
     void showDetails();
-    struct MessageRecord { std::shared_ptr<const google::protobuf::Message> message; std::string error; uint64_t count = 0; qint64 receivedAt = 0; qint64 receivedTick = 0; };
+    struct MessageRecord { std::shared_ptr<const rm2027::Message> message; QJsonObject fields; std::string error; uint64_t count = 0; qint64 receivedAt = 0; qint64 receivedTick = 0; };
     static QJsonObject messageFields(const MessageRecord &record);
     std::mutex recordsMutex_;
     std::map<std::string, MessageRecord> records_;
-    QWidget *mapDock_ = nullptr, *videoDock_ = nullptr, *detailsDock_ = nullptr;
+    QWidget *mapDock_ = nullptr, *videoDock_ = nullptr, *detailsDock_ = nullptr, *roleDock_ = nullptr;
+    QWidget *allyModule_ = nullptr, *enemyModule_ = nullptr, *eventsModule_ = nullptr, *analysisModule_ = nullptr;
+    QWidget *compactPage_ = nullptr;
+    QWidget *bottomLeft_ = nullptr;
+    class QHBoxLayout *bottomLeftLayout_ = nullptr;
+    QWidget *dockPage_ = nullptr;
+    void buildDockPage();
+    QLabel *roleInfo_ = nullptr;
+    Role role_ = Role::Unknown;
+    uint number_ = 0;
+    int side_ = -1;
     QVBoxLayout *primaryLayout_ = nullptr;
     QSplitter *workspace_ = nullptr, *sidebar_ = nullptr;
     QList<QWidget *> sidebarModules_, defaultSidebar_;
@@ -70,6 +102,10 @@ private:
     QLabel *damage_ = nullptr, *videoStatus_ = nullptr, *dataStatus_ = nullptr;
     QListWidget *events_ = nullptr, *ally_ = nullptr, *enemy_ = nullptr, *situation_ = nullptr;
     QLabel *position_ = nullptr, *radar_ = nullptr;
+    QLabel *analysis_ = nullptr;
+    QLabel *topBar_ = nullptr;
+    QWidget *modulePanel_ = nullptr;
+    std::array<QLabel *, 8> moduleDots_{};
     QProgressBar *baseRedBar_ = nullptr, *baseBlueBar_ = nullptr;
     VideoView *videoView_ = nullptr;
     QLabel *videoLink_ = nullptr;
@@ -89,4 +125,36 @@ private:
     qint64 connectedAtTick_ = 0;
     uint64_t videoSequence_ = 0;
     std::vector<uint8_t> frame_;
+
+    // ---- 作战视图 v3 ----
+    CombatView *combat_ = nullptr;
+    Crosshair *crosshair_ = nullptr;
+    QAction *crosshairAction_ = nullptr;
+    QStackedWidget *mainStack_ = nullptr;
+    QWidget *dataPage_ = nullptr;
+    Map *mapHud_ = nullptr;
+    VideoView *combatVideo_ = nullptr;
+    QLabel *hudAllyBase_ = nullptr, *hudEnemyBase_ = nullptr;
+    QLabel *hudAllyBaseName_ = nullptr, *hudEnemyBaseName_ = nullptr;
+    QLabel *hudClock_ = nullptr, *hudStage_ = nullptr, *hudScore_ = nullptr;
+    QLabel *hudOutpostAlly_ = nullptr, *hudOutpostEnemy_ = nullptr;
+    QProgressBar *hudOutpostAllyBar_ = nullptr, *hudOutpostEnemyBar_ = nullptr;
+    QLabel *hudStats_ = nullptr;
+    QLabel *hudLink_ = nullptr;
+    QLabel *hudSelfId_ = nullptr, *hudSelfHp_ = nullptr, *hudSelfKv_ = nullptr;
+    QLabel *hudTicker_ = nullptr, *hudTickerEvent_ = nullptr, *hudLegend_ = nullptr;
+    QProgressBar *hudAllyBar_ = nullptr, *hudEnemyBar_ = nullptr, *hudSelfBar_ = nullptr;
+    QWidget *hudAllySquad_ = nullptr, *hudEnemySquad_ = nullptr;
+    std::array<QLabel *, 4> hudAllyHp_{}, hudEnemyHp_{};
+    std::array<QProgressBar *, 4> hudAllyHpBar_{}, hudEnemyHpBar_{};
+    QVector<QPair<QWidget *, QRect>> hudGeometry_;
+    QVector<QPair<QLabel *, int>> hudFonts_;
+    qreal hudScale_ = 1.0;
+
+    // 兑换面板（O 键）
+    QWidget *exchangePanel_ = nullptr;
+    QLabel *exchangeKind_ = nullptr, *exchangeOwned_ = nullptr, *exchangeLimit_ = nullptr;
+    QLabel *exchangeGold_ = nullptr, *exchangeHint_ = nullptr;
+    QSpinBox *exchangeQty_ = nullptr;
+    int exchangeCmdType_ = 0;
 };

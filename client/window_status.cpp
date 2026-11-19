@@ -1,7 +1,6 @@
 #include "window.h"
 #include "map.h"
 #include "window_helpers.h"
-#include "rm2027_client_down.pb.h"
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QListWidget>
@@ -77,23 +76,39 @@ void Window::setBaseHealth(QLabel *label, QProgressBar *bar, const QString &heal
     bar->update();
 }
 
+qint64 Window::dataAgeMs(const char *topic) {
+    std::lock_guard<std::mutex> lock(recordsMutex_);
+    const auto it = records_.find(topic);
+    if (it == records_.end() || it->second.receivedTick < connectedAtTick_) return -1;
+    return monotonicMs() - it->second.receivedTick;
+}
+
 void Window::markStale() {
     map_->expireRobotPositions();
+    if (mapHud_) mapHud_->expireRobotPositions();
     bool maxExpired = false;
     for (auto &timestamp : maxHealthAt_) {
         if (timestamp >= 0 && maxClock_.elapsed() - timestamp > 3000) { timestamp = -1; maxExpired = true; }
     }
     if (maxExpired && !health_.empty()) showHealth(health_);
-    if (gameAge_.isValid() && gameAge_.elapsed() > 3000) {
-        dataStatus_->setText(QStringLiteral("比赛数据已过期")); scoreRed_->setText("--"); scoreBlue_->setText("--"); clock_->setText("--:--"); round_->setText(QStringLiteral("比赛状态已过期")); gameAge_.invalidate();
-    }
-    if (unitAge_.isValid() && unitAge_.elapsed() > 3000) {
-        setBaseHealth(baseRed_, baseRedBar_, QStringLiteral("--"));
-        setBaseHealth(baseBlue_, baseBlueBar_, QStringLiteral("--")); damage_->setText(QStringLiteral("累计伤害　数据已过期")); health_.clear(); showHealthPlaceholder(QStringLiteral("数据已过期")); unitAge_.invalidate();
-    }
-    if (economyAge_.isValid() && economyAge_.elapsed() > 3000) { economy_->setText(QStringLiteral("经济数据已过期")); economyAge_.invalidate(); }
-    if (positionAge_.isValid() && positionAge_.elapsed() > 3000) { position_->setText(QStringLiteral("机器人坐标：数据已过期")); positionAge_.invalidate(); }
-    if (radarAge_.isValid() && radarAge_.elapsed() > 5000) { radar_->setText(QStringLiteral("雷达坐标：数据已过期")); radarAge_.invalidate(); }
+
+    // 过期不再清空：保留最后一次的值，只把颜色变灰，具体多久没更新由告警条给出。
+    const auto apply = [this](const char *topic, qint64 thresholdMs, std::initializer_list<QLabel *> labels) {
+        const qint64 age = dataAgeMs(topic);
+        const bool stale = age >= 0 && age > thresholdMs;
+        for (QLabel *label : labels) {
+            if (!label || label->property("stale").toBool() == stale) continue;
+            label->setProperty("stale", stale);
+            label->setStyleSheet(stale ? QStringLiteral("color:#6d7885;") : QString());
+        }
+    };
+    apply("GameStatus", 3000, {scoreRed_, scoreBlue_, clock_, round_});
+    apply("GlobalUnitStatus", 3000, {damage_});
+    apply("GlobalLogisticsStatus", 3000, {economy_});
+    apply("RobotPosition", 3000, {position_});
+    apply("RadarInfoToClient", 5000, {radar_});
+    apply("RobotDynamicStatus", 3000, {localStatus_[0], localStatus_[1], localStatus_[2]});
+    apply("RobotRespawnStatus", 3000, {localStatus_[3]});
 }
 
 void Window::showHealth(const std::vector<uint32_t> &health) {
@@ -141,26 +156,171 @@ void Window::updateAlert() {
     if (!connected_) {
         issues << QStringLiteral("通信未连接");
     } else {
-        if (!gameAge_.isValid()) issues << QStringLiteral("比赛状态未就绪或已过期");
-        if (!unitAge_.isValid() || health_.empty()) issues << QStringLiteral("机器人血量未就绪或已过期");
-        else if (health_.size() != 8) issues << QStringLiteral("机器人血量数据长度异常");
+        const auto report = [this, &issues](const char *topic, qint64 thresholdMs, const char *name) {
+            const qint64 age = dataAgeMs(topic);
+            if (age < 0) issues << QString::fromUtf8(name) + QStringLiteral("未就绪");
+            else if (age > thresholdMs) issues << QString::fromUtf8(name) + QStringLiteral("已 %1 秒未更新").arg(age / 1000);
+        };
+        report("GameStatus", 3000, "比赛状态");
+        report("GlobalUnitStatus", 3000, "机器人血量");
+        report("RadarInfoToClient", 5000, "雷达");
+        if (!health_.empty() && health_.size() != 8) issues << QStringLiteral("机器人血量数据长度异常");
     }
     if (video_ && !video_->running()) issues << QStringLiteral("图传接收器未启动");
     else if (!frameAge_.isValid()) issues.prepend(gotVideo_ ? QStringLiteral("图传已中断") : QStringLiteral("等待图传首帧"));
     if (localStatus_[0]->text() == QLatin1String("0"))
         issues << QStringLiteral("本机血量为零");
-    const QString text = issues.isEmpty() ? QStringLiteral("●  通信与图传数据已接收") : QStringLiteral("●  ") + issues.join(QStringLiteral("   ·   "));
-    if (alert_->text() != text) alert_->setText(text);
-    if (alert_->property("ok").toBool() != issues.isEmpty()) {
-        alert_->setProperty("ok", issues.isEmpty());
-        alert_->style()->unpolish(alert_); alert_->style()->polish(alert_);
-    }
+    // 顶部条已被“机制提示条”接管（在 refreshSummary 里维护），这里不再写文本。
+    Q_UNUSED(issues);
 }
 
 void Window::refreshSummary() {
+    updateCombatHud();
+    if (exchangePanel_ && exchangePanel_->isVisible()) updateExchangePanel();
+    if (topBar_) {
+        const auto field = [this](const char *topic, const char *key, const QString &fallback = QStringLiteral("--")) {
+            const auto value = messageFields(topic).value(QLatin1String(key));
+            return value.isDouble() ? QString::number(value.toInt()) : fallback;
+        };
+        const bool blue = ownSide_ == 1;
+        const auto postAlly = field("GlobalUnitStatus", blue ? "outpostBHealth" : "outpostRHealth");
+        const auto postEnemy = field("GlobalUnitStatus", blue ? "outpostRHealth" : "outpostBHealth");
+        const auto economy = field("GlobalLogisticsStatus", "remainingEconomy");
+        const auto fortAlly = field("GlobalUnitStatus", blue ? "enemyBaseStatus" : "baseStatus");
+        const auto fortEnemy = field("GlobalUnitStatus", blue ? "baseStatus" : "enemyBaseStatus");
+        const auto respawnGold = field("RobotRespawnStatus", "goldCostForRespawn");
+        const auto canPay = messageFields("RobotRespawnStatus").value(QStringLiteral("canPayForRespawn")).toBool();
+        topBar_->setText(QStringLiteral(
+            "<span style='color:#8da0b3'>前哨</span> <span style='color:#ff5a67'>%1</span> : <span style='color:#3ea8ff'>%2</span>"
+            "　｜　<span style='color:#8da0b3'>经济</span> <span style='color:#ffc971'>%3</span>"
+            "　｜　<span style='color:#8da0b3'>堡垒</span> %4 : %5"
+            "　｜　<span style='color:#8da0b3'>买活</span> <span style='color:#ffc971'>%6</span> 金币 %7")
+            .arg(postAlly, postEnemy, economy, fortAlly, fortEnemy, respawnGold,
+                 canPay ? QStringLiteral("<span style='color:#7fe0a8'>可买</span>") : QStringLiteral("<span style='color:#6d7885'>不可买</span>")));
+    }
+    if (analysis_) {
+        const auto number = [this](const char *topic, const char *key) -> qint64 {
+            const auto value = messageFields(topic).value(QLatin1String(key));
+            return value.isDouble() ? static_cast<qint64>(value.toDouble()) : 0;
+        };
+        const qint64 cpAlly = number("GlobalUnitStatus", "totalCPAlly");
+        const qint64 cpEnemy = number("GlobalUnitStatus", "totalCPEnemy");
+        const qint64 dmgAlly = number("GlobalUnitStatus", "totalDamageAlly");
+        const qint64 dmgEnemy = number("GlobalUnitStatus", "totalDamageEnemy");
+        qint64 hpAlly = 0, hpEnemy = 0;
+        for (size_t i = 0; i < health_.size(); ++i) (i < 4 ? hpAlly : hpEnemy) += health_[i];
+        const qint64 gold = number("GlobalLogisticsStatus", "remainingEconomy");
+        const auto diff = [](qint64 a, qint64 b) {
+            const qint64 d = a - b;
+            const QString color = d >= 0 ? QStringLiteral("#7fe0a8") : QStringLiteral("#ff8a93");
+            return QStringLiteral("<span style='color:%1'>%2%3</span>").arg(color,
+                d >= 0 ? QStringLiteral("+") : QString(), QString::number(d));
+        };
+        QString html = QStringLiteral(
+            "<table cellspacing='2' width='100%'>"
+            "<tr><td><span style='color:#8da0b3'>控制度</span></td><td align='right'>%1</td><td align='right'>%2</td></tr>"
+            "<tr><td><span style='color:#8da0b3'>总伤害</span></td><td align='right'>%3</td><td align='right'>%4</td></tr>"
+            "<tr><td><span style='color:#8da0b3'>总血量</span></td><td align='right'>%5</td><td align='right'>%6</td></tr>"
+            "<tr><td><span style='color:#8da0b3'>剩余经济</span></td><td align='right' colspan='2'>%7</td></tr>"
+            "</table>")
+            .arg(QString::number(cpAlly), diff(cpAlly, cpEnemy),
+                 QString::number(dmgAlly), diff(dmgAlly, dmgEnemy),
+                 QString::number(hpAlly), diff(hpAlly, hpEnemy),
+                 QString::number(gold));
+
+        // 伤害拆解无法归因到具体兵种，按需求不展示。
+        analysis_->setText(html);
+    }
+    if (modulePanel_) {
+        static const char *keys[8] = {"powerManager", "rfid", "lightStrip", "smallShooter",
+                                      "bigShooter", "uwb", "armor", "videoTransmission"};
+        const auto modules = messageFields("RobotModuleStatus");
+        for (size_t i = 0; i < moduleDots_.size(); ++i) {
+            const auto value = modules.value(QLatin1String(keys[i]));
+            QString color = QStringLiteral("#6d7885");
+            if (value.isDouble()) color = value.toInt() == 1 ? QStringLiteral("#7fe0a8") : QStringLiteral("#ff5a67");
+            if (moduleDots_[i]) moduleDots_[i]->setStyleSheet(QStringLiteral("color:%1;font-size:12px;").arg(color));
+        }
+    }
+    // 顶部提示条：机制倒计时（GlobalSpecialMechanism，数组形式）
+    if (alert_) {
+        const auto mechanism = messageFields("GlobalSpecialMechanism");
+        const auto ids = mechanism.value(QStringLiteral("mechanismId")).toArray();
+        const auto times = mechanism.value(QStringLiteral("mechanismTimeSec")).toArray();
+        const auto nameOf = [](int id) -> QString {
+            switch (id) {
+            case 1: return QStringLiteral("己方堡垒被激活");
+            case 2: return QStringLiteral("对方堡垒被激活");
+            case 3: return QStringLiteral("R 前哨阵地激活");
+            case 4: return QStringLiteral("B 前哨阵地激活");
+            case 5: return QStringLiteral("R 基地阵地激活");
+            case 6: return QStringLiteral("B 基地阵地激活");
+            default: return QString();
+            }
+        };
+        QStringList parts;
+        for (int i = 0; i < ids.size() && i < times.size(); ++i) {
+            const int id = ids.at(i).toInt();
+            const int signedSeconds = times.at(i).toInt();
+            const QString name = nameOf(id);
+            if (name.isEmpty()) continue;
+            QString detail;
+            if (id >= 3) {
+                // 3–6：符号表示推进方向（<0 对方推进，>0 己方推进，0 无变化）
+                if (signedSeconds == 0) detail = QStringLiteral("无变化");
+                else detail = QStringLiteral("%1 %2s")
+                                  .arg(signedSeconds > 0 ? QStringLiteral("己方推进") : QStringLiteral("对方推进"))
+                                  .arg(qAbs(signedSeconds));
+            } else {
+                if (signedSeconds <= 0) continue;
+                detail = QStringLiteral("%1s").arg(signedSeconds);
+            }
+            parts << QStringLiteral("%1 %2").arg(name, detail);
+        }
+        if (parts.isEmpty()) {
+            alert_->clear();
+            alert_->setVisible(false);
+        } else {
+            alert_->setText(QStringLiteral("● ") + parts.join(QStringLiteral("　·　")));
+            alert_->setVisible(true);
+        }
+    }
     const auto setLocal = [this](int index, const QString &text) {
         if (localStatus_[index]->text() != text) localStatus_[index]->setText(text);
     };
+    if (roleInfo_) {
+        const auto valueOf = [this](const char *topic, const char *key) -> QJsonValue {
+            return messageFields(topic).value(QLatin1String(key));
+        };
+        const auto numberText = [](const QJsonValue &v) {
+            return v.isDouble() ? QString::number(v.toInt()) : QStringLiteral("等待");
+        };
+        QString text;
+        switch (role_) {
+        case Role::Hero:
+            text = QStringLiteral("科技核心状态：%1\n阵地计时：%2 秒\n装配难度 1~4 级，按比赛时间解锁")
+                .arg(numberText(valueOf("TechCoreMotionStateSync", "basicState")),
+                     numberText(valueOf("GlobalSpecialMechanism", "mechanismTimeSec")));
+            break;
+        case Role::Sentry:
+            text = QStringLiteral("哨兵姿态：%1\n最近控制结果：%2")
+                .arg(numberText(valueOf("SentryStatusSync", "postureId")),
+                     numberText(valueOf("SentryCtrlResult", "resultCode")));
+            break;
+        case Role::Dart:
+            text = QStringLiteral("飞镖：目标选择 / 开闸 / 发射的上行尚未接入");
+            break;
+        case Role::Aerial:
+            text = QStringLiteral("空中：飞行状态显示待接入");
+            break;
+        case Role::Engineer:
+            text = QStringLiteral("工程：取矿 / 装配提示待接入");
+            break;
+        default:
+            break;
+        }
+        if (!text.isEmpty() && roleInfo_->text() != text) roleInfo_->setText(text);
+    }
     if (!connected_) {
         for (int i = 0; i < 4; ++i) setLocal(i, QStringLiteral("断开"));
         const QString text = QStringLiteral("连接断开：机器人和场地状态不可用");
@@ -191,29 +351,29 @@ void Window::refreshSummary() {
             unavailable(QStringLiteral("等待数据"));
             return;
         }
-        if (monotonicMs() - it->second.receivedTick > 3000) {
-            unavailable(QStringLiteral("数据过期"));
-            return;
-        }
         if (!it->second.error.empty()) {
             unavailable(QStringLiteral("数据异常"));
             return;
         }
-        const auto *message = it->second.message.get();
-        if (const auto *dynamic = dynamic_cast<const rm_client_down::RobotDynamicStatus *>(message)) {
-            setLocal(0, dynamic->has_current_health() ? QString::number(dynamic->current_health()) : QStringLiteral("--"));
-            setLocal(1, dynamic->has_remaining_ammo() ? QString::number(dynamic->remaining_ammo()) : QStringLiteral("--"));
-            setLocal(2, dynamic->has_current_heat() ? QString::number(dynamic->current_heat()) : QStringLiteral("--"));
+        const auto &fields = it->second.fields;
+        const std::string topicName(topic);
+        if (topicName == "RobotDynamicStatus") {
+            const auto number = [&fields](const char *key) {
+                const auto value = fields.value(QLatin1String(key));
+                return value.isDouble() ? QString::number(value.toDouble(), 'g', 12) : QStringLiteral("--");
+            };
+            setLocal(0, number("currentHealth"));
+            setLocal(1, number("remainingAmmo"));
+            setLocal(2, number("currentHeat"));
             return;
         }
-        if (const auto *respawn = dynamic_cast<const rm_client_down::RobotRespawnStatus *>(message)) {
-            if (!respawn->has_is_pending_respawn()) {
-                setLocal(3, QStringLiteral("--"));
-            } else if (!respawn->is_pending_respawn()) {
+        if (topicName == "RobotRespawnStatus") {
+            if (!fields.value("isPendingRespawn").toBool()) {
                 setLocal(3, QStringLiteral("无需复活"));
-            } else if (respawn->has_current_respawn_progress() && respawn->total_respawn_progress() > 0) {
+            } else if (fields.value("totalRespawnProgress").toInt() > 0) {
                 setLocal(3, QStringLiteral("%1 / %2")
-                    .arg(respawn->current_respawn_progress()).arg(respawn->total_respawn_progress()));
+                    .arg(fields.value("currentRespawnProgress").toInt())
+                    .arg(fields.value("totalRespawnProgress").toInt()));
             } else {
                 setLocal(3, QStringLiteral("等待复活"));
             }

@@ -5,10 +5,11 @@
 #include <QPainterPath>
 #include <QPolygonF>
 #include <QRadialGradient>
+#include <cmath>
 
 Map::Map(QWidget *parent) : QWidget(parent) { setMinimumSize(185, 115); }
 void Map::flip() { flipped_ = !flipped_; schematic_ = {}; update(); }
-void Map::setRobotPosition(uint id, QPointF position) {
+void Map::setRobotPosition(uint id, QPointF position, qreal yaw) {
     const uint number = id % 100;
     if (id > 107 ||
         (number != 1 && number != 3 && number != 4 && number != 7) ||
@@ -16,6 +17,7 @@ void Map::setRobotPosition(uint id, QPointF position) {
         return;
     auto &robot = robots_[id];
     robot.position = position;
+    robot.yaw = yaw;
     robot.age.start();
     update();
 }
@@ -34,6 +36,13 @@ void Map::expireRobotPositions() {
     if (robots_.size() != count) update();
 }
 
+void Map::setStatus(uint ownId, const std::vector<uint32_t> &health, const std::vector<uint32_t> &maxHealth) {
+    ownId_ = ownId;
+    health_ = health;
+    maxHealth_ = maxHealth;
+    update();
+}
+
 void Map::paintEvent(QPaintEvent *) {
     const qreal scale = devicePixelRatioF();
     const QSize pixels = size() * scale;
@@ -47,18 +56,63 @@ void Map::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.drawPixmap(0, 0, schematic_);
     painter.setRenderHint(QPainter::Antialiasing);
-    const qreal fit = qMin(width() / 900.0, height() / 590.0);
+    const qreal fit = qMin(width() / 900.0, height() / 482.0);
     const QPointF center(width() / 2.0, height() / 2.0);
+    const QList<int> numberOrder{1, 3, 4, 7};
+    // 标记尺寸随控件大小缩放：小地图上不再是大圆点
+    const qreal radius = qBound(3.0, qMin(width(), height()) / 46.0, 11.0);
+    const qreal barWidth = qMax(10.0, radius * 2.6);
+    const qreal barHeight = qMax(2.0, radius * 0.34);
     for (auto it = robots_.cbegin(); it != robots_.cend(); ++it) {
         const auto position = it->position;
         const qreal direction = flipped_ ? -1 : 1;
         const auto point = center + QPointF((position.x() - .5) * 820,
-                                           (.5 - position.y()) * 510) * fit * direction;
-        painter.setPen(QPen(QColor("#fff4df"), 1.5));
-        painter.setBrush(QColor(it.key() < 100 ? "#b93649" : "#2166b4"));
-        painter.drawEllipse(point, 11, 11);
-        painter.drawText(QRectF(point.x() - 11, point.y() - 11, 22, 22),
-                         Qt::AlignCenter, QString::number(it.key() % 100));
+                                           (.5 - position.y()) * 430) * fit * direction;
+        const uint id = it.key();
+        const int index = numberOrder.indexOf(static_cast<int>(id % 100));
+        const size_t hpIndex = static_cast<size_t>((id >= 100 ? 4 : 0) + qMax(0, index));
+        const uint hp = hpIndex < health_.size() ? health_[hpIndex] : 0;
+        const uint maxHp = hpIndex < maxHealth_.size() ? maxHealth_[hpIndex] : 0;
+        const bool self = ownId_ != 0 && id == ownId_;
+        const QColor fill = self ? QColor("#7fe0a8") : (id < 100 ? QColor("#ff5a67") : QColor("#3ea8ff"));
+
+        // 朝向箭头（有 yaw 时按角度旋转，无则朝上）
+        painter.save();
+        painter.translate(point);
+        if (!std::isnan(it->yaw)) painter.rotate(it->yaw);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(fill);
+        painter.drawPolygon(QPolygonF(QVector<QPointF>{QPointF(0, -radius * 1.9),
+                                                       QPointF(-radius * 0.55, -radius * 1.05),
+                                                       QPointF(radius * 0.55, -radius * 1.05)}));
+        painter.restore();
+
+        // 机体圆点（自己不变大，只靠颜色区分）
+        painter.setPen(QPen(QColor(255, 255, 255, self ? 200 : 150), qMax(1.0, radius * 0.16)));
+        painter.setBrush(fill);
+        painter.drawEllipse(point, radius, radius);
+        // 编号：始终绘制，字号不小于 8px，加深色描边保证小地图上也看得清
+        {
+            QFont f = painter.font();
+            f.setPixelSize(qMax(8, qRound(radius * 1.5)));
+            f.setBold(true);
+            painter.setFont(f);
+            const QRectF textRect(point.x() - radius * 1.6, point.y() - radius * 1.6, radius * 3.2, radius * 3.2);
+            painter.setPen(QColor(0, 0, 0, 190));
+            painter.drawText(textRect.translated(0.8, 0.8), Qt::AlignCenter, QString::number(id % 100));
+            painter.setPen(QColor("#ffffff"));
+            painter.drawText(textRect, Qt::AlignCenter, QString::number(id % 100));
+        }
+
+        // 血条
+        if (maxHp > 0) {
+            const QRectF bar(point.x() - barWidth / 2, point.y() + radius + 1.5, barWidth, barHeight);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0, 0, 0, 150));
+            painter.drawRoundedRect(bar.adjusted(-0.5, -0.5, 0.5, 0.5), 1, 1);
+            painter.setBrush(fill);
+            painter.drawRoundedRect(QRectF(bar.left(), bar.top(), barWidth * qMin(1.0, double(hp) / maxHp), barHeight), 1, 1);
+        }
     }
 }
 
@@ -76,58 +130,127 @@ void Map::paintSchematic(QPainter &p) {
     p.save();
     p.translate(width() / 2.0, height() / 2.0);
     if (flipped_) p.rotate(180);
-    const qreal scale = qMin(width() / 900.0, height() / 590.0);
+    const qreal scale = qMin(width() / 900.0, height() / 482.0);
     p.scale(scale, scale);
-    p.translate(-450, -295);
+    p.translate(-450, -241);
 
     // 网格
     p.setPen(QPen(QColor(72, 97, 106, 55), 1));
-    for (int x = 0; x <= 900; x += 36) p.drawLine(x, 0, x, 590);
-    for (int y = 0; y <= 590; y += 36) p.drawLine(0, y, 900, y);
+    for (int x = 0; x <= 900; x += 36) p.drawLine(x, 0, x, 482);
+    for (int y = 0; y <= 482; y += 36) p.drawLine(0, y, 900, y);
 
-    // 场地外框（金色）与中线
-    p.setPen(QPen(QColor(232, 163, 61, 170), 3));
+    // 场地轮廓：八边形切角（保留官方轮廓）
+    p.setPen(QPen(QColor(232, 163, 61, 175), 3));
     p.setBrush(Qt::NoBrush);
-    p.drawRoundedRect(QRectF(24, 25, 852, 540), 8, 8);
+    p.drawPolygon(QPolygonF(QVector<QPointF>{{94,20},{806,20},{876,90},{876,392},{806,462},{94,462},{24,392},{24,90}}));
     p.setPen(QPen(QColor(232, 163, 61, 90), 2, Qt::DashLine));
-    p.drawLine(450, 25, 450, 565);
+    p.drawLine(450, 20, 450, 462);
 
-    // 高地与障碍
-    p.setPen(QPen(QColor(80, 105, 103), 3));
-    p.setBrush(QColor("#25383d"));
-    p.drawPolygon(QPolygonF(QVector<QPointF>{{24,105},{225,105},{295,32},{376,32},{300,138},{190,138},{150,192},{24,192}}));
-    p.drawPolygon(QPolygonF(QVector<QPointF>{{876,485},{675,485},{605,558},{524,558},{600,452},{710,452},{750,398},{876,398}}));
-    p.setBrush(QColor("#26363a"));
-    p.drawPolygon(QPolygonF(QVector<QPointF>{{25,385},{160,385},{240,490},{360,490},{325,552},{120,552},{25,475}}));
-    p.drawPolygon(QPolygonF(QVector<QPointF>{{875,205},{740,205},{660,100},{540,100},{575,38},{780,38},{875,115}}));
+    // 公路区（上下通道）
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(52, 74, 69, 110));
+    p.drawRoundedRect(QRectF(36, 28, 828, 30), 5, 5);
+    p.drawRoundedRect(QRectF(36, 424, 828, 30), 5, 5);
 
-    // 中央能量机关菱形
-    QLinearGradient core(450, 183, 450, 407);
-    core.setColorAt(0, QColor("#2d4a4f")); core.setColorAt(1, QColor("#1b2f35"));
+    // 启动区（红左上 / 蓝右下，对角）
+    p.setBrush(QColor(216, 92, 96, 40));
+    p.drawRoundedRect(QRectF(30, 30, 150, 84), 6, 6);
+    p.setBrush(QColor(56, 166, 216, 40));
+    p.drawRoundedRect(QRectF(720, 368, 150, 84), 6, 6);
+
+    // 中央高台（八边形制高点）
+    QLinearGradient plateau(450, 91, 450, 391);
+    plateau.setColorAt(0, QColor("#22383d"));
+    plateau.setColorAt(1, QColor("#1a2c33"));
+    p.setPen(QPen(QColor(150, 170, 168, 210), 3));
+    p.setBrush(plateau);
+    p.drawPolygon(QPolygonF(QVector<QPointF>{{340,91},{560,91},{615,146},{615,336},{560,391},{340,391},{285,336},{285,146}}));
+
+    // 高台四向坡道
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor("#2c4247"));
+    p.drawRoundedRect(QRectF(420, 80, 60, 14), 3, 3);
+    p.drawRoundedRect(QRectF(420, 388, 60, 14), 3, 3);
+    p.drawRoundedRect(QRectF(272, 211, 14, 60), 3, 3);
+    p.drawRoundedRect(QRectF(614, 211, 14, 60), 3, 3);
+
+    const auto hexagon = [](QPointF c, qreal r) {
+        QPolygonF poly;
+        for (int i = 0; i < 6; ++i) {
+            const qreal a = M_PI / 3.0 * i + M_PI / 6.0;
+            poly << c + QPointF(r * std::cos(a), r * std::sin(a));
+        }
+        return poly;
+    };
+
+    // 中央科技核心（菱形）
+    QLinearGradient core(450, 183, 450, 299);
+    core.setColorAt(0, QColor("#2d4a4f"));
+    core.setColorAt(1, QColor("#1b2f35"));
     p.setPen(QPen(QColor(232, 163, 61, 190), 3));
     p.setBrush(core);
-    p.drawPolygon(QPolygonF(QVector<QPointF>{{295,295},{450,183},{605,295},{450,407}}));
+    p.drawPolygon(QPolygonF(QVector<QPointF>{{450,183},{508,241},{450,299},{392,241}}));
     p.setPen(QPen(QColor(255, 201, 113, 160), 2));
     p.setBrush(QColor("#0e1c24"));
-    p.drawPolygon(QPolygonF(QVector<QPointF>{{364,295},{450,232},{536,295},{450,358}}));
+    p.drawPolygon(QPolygonF(QVector<QPointF>{{450,211},{480,241},{450,271},{420,241}}));
 
-    // 障碍块
+    // 高台前后增益点（六边形，中性）
     p.setPen(QPen(QColor(124, 147, 120), 2));
-    p.setBrush(QColor("#344a45"));
-    for (const QRect &r : {QRect(180,95,70,35), QRect(650,460,70,35), QRect(238,235,28,120), QRect(634,235,28,120), QRect(315,400,53,38), QRect(532,152,53,38)}) p.drawRoundedRect(r, 3, 3);
+    p.setBrush(QColor("#33474a"));
+    p.drawPolygon(hexagon(QPointF(450, 130), 26));
+    p.drawPolygon(hexagon(QPointF(450, 352), 26));
 
-    // 红蓝基地（光晕 + 实心圆）
+    // 前哨站（场地两侧，靠近启动区；左红右蓝）
+    for (const auto &post : {std::make_pair(QPointF(105, 241), QColor("#d85c60")),
+                             std::make_pair(QPointF(795, 241), QColor("#38a6d8"))}) {
+        p.setPen(QPen(QColor(post.second.red(), post.second.green(), post.second.blue(), 180), 2));
+        p.setBrush(QColor("#24383c"));
+        p.drawPolygon(hexagon(post.first, 48));
+        p.setBrush(post.second);
+        p.setOpacity(0.4);
+        p.drawPolygon(hexagon(post.first, 24));
+        p.setOpacity(1.0);
+    }
+
+    // 高台两侧的环形高地增益点（中性六边形）
+    p.setPen(QPen(QColor(124, 147, 120), 2));
+    p.setBrush(QColor("#2e4245"));
+    p.drawPolygon(hexagon(QPointF(200, 241), 30));
+    p.drawPolygon(hexagon(QPointF(700, 241), 30));
+
+    // 红蓝基地（对角，带光晕）
     const struct { QPointF c; QColor fill, glow; } bases[] = {
-        {QPointF(82, 295), QColor("#d85c60"), QColor(255, 90, 103, 140)},
-        {QPointF(818, 295), QColor("#38a6d8"), QColor(62, 168, 255, 140)}};
+        {QPointF(88, 66), QColor("#d85c60"), QColor(255, 90, 103, 140)},
+        {QPointF(812, 416), QColor("#38a6d8"), QColor(62, 168, 255, 140)}};
     for (const auto &b : bases) {
-        QRadialGradient g(b.c, 70);
-        g.setColorAt(0, b.glow); g.setColorAt(1, QColor(0, 0, 0, 0));
-        p.setPen(Qt::NoPen); p.setBrush(g);
-        p.drawEllipse(b.c, 70, 70);
+        QRadialGradient g(b.c, 76);
+        g.setColorAt(0, b.glow);
+        g.setColorAt(1, QColor(0, 0, 0, 0));
+        p.setPen(Qt::NoPen);
+        p.setBrush(g);
+        p.drawEllipse(b.c, 76, 76);
         p.setPen(QPen(QColor(255, 255, 255, 190), 3));
         p.setBrush(b.fill);
-        p.drawEllipse(b.c, 30, 30);
+        p.drawPolygon(hexagon(b.c, 34));
+    }
+    // 官方场地渲染图（压暗抽象化）作为底图，覆盖手绘结构，只保留轮廓与中线
+    QPixmap field(":/images/field.png");
+    if (!field.isNull()) {
+        const QRectF target(10, 8, 880, 466);
+        const QSize targetSize = target.size().toSize();
+        const QPixmap scaled = field.scaled(targetSize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+        const QRectF source((scaled.width() - targetSize.width()) / 2.0,
+                            (scaled.height() - targetSize.height()) / 2.0,
+                            targetSize.width(), targetSize.height());
+        p.setOpacity(0.92);
+        p.drawPixmap(target, scaled, source);
+        p.setOpacity(1.0);
+        p.fillRect(target, QColor(6, 12, 18, 76));
+        p.setPen(QPen(QColor(232, 163, 61, 150), 2));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(target);
+        p.setPen(QPen(QColor(232, 163, 61, 80), 2, Qt::DashLine));
+        p.drawLine(QPointF(450, target.top()), QPointF(450, target.bottom()));
     }
     p.restore();
 
