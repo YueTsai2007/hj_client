@@ -77,7 +77,7 @@ void Map::paintEvent(QPaintEvent *) {
     const qreal barHeight = qMax(2.0, radius * 0.34);
     for (auto it = robots_.cbegin(); it != robots_.cend(); ++it) {
         const auto position = it->position;
-        const qreal nx = flipped_ ? 1.0 - position.x() : position.x();
+        const qreal nx = (flipped_ != mirror_) ? 1.0 - position.x() : position.x();
         const auto point = fieldOrigin + QPointF(nx * fieldWidth + calX_ * fit,
                                                  (1.0 - position.y()) * fieldHeight + calY_ * fit);
         const uint id = it.key();
@@ -145,6 +145,11 @@ void Map::paintSchematic(QPainter &p) {
     const qreal scale = qMin(width() / 900.0, height() / 482.0);
     p.scale(scale, scale);
     p.translate(-450, -241);
+    // 换边镜像：整幅底图与标记一起左右翻转（红蓝互换）
+    if (mirror_) {
+        p.translate(900, 0);
+        p.scale(-1, 1);
+    }
 
     // 网格
     p.setPen(QPen(QColor(72, 97, 106, 55), 1));

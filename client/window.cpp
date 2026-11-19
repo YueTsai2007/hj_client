@@ -13,6 +13,7 @@
 #include <QSpinBox>
 #include <QGridLayout>
 #include <QPushButton>
+#include <QCheckBox>
 #include <QRegularExpression>
 #include "rm2027/api/messages.h"
 #include <QApplication>
@@ -382,9 +383,25 @@ void Window::setupUi() {
     map_ = new Map;
     map_->setProperty("demoMode", demoMode_);
     mapLayout->addWidget(map_, 1);
+    // 地图控制行：切换视角 + 镜像勾选（操作手不用快捷键也能切）
+    auto *mapControls = new QHBoxLayout;
+    mapControls->setSpacing(8);
     auto *flip = new QPushButton(QStringLiteral("切换视角"));
     connect(flip, &QPushButton::clicked, map_, &Map::flip);
-    mapLayout->addWidget(flip);
+    auto *mirrorCheck = new QCheckBox(QStringLiteral("镜像"));
+    const bool mirrorOn = preferences().value("view/mirror", qEnvironmentVariableIntValue("HJ_MAP_MIRROR") == 1).toBool();
+    mirrorCheck->setChecked(mirrorOn);
+    map_->setMirror(mirrorOn);
+    connect(mirrorCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (map_) map_->setMirror(on);
+        if (mapHud_) mapHud_->setMirror(on);
+        auto settings = preferences();
+        settings.setValue("view/mirror", on);
+    });
+    mapControls->addWidget(flip);
+    mapControls->addWidget(mirrorCheck);
+    mapControls->addStretch();
+    mapLayout->addLayout(mapControls);
     position_ = label(QStringLiteral("机器人坐标：等待数据"), "caption");
     radar_ = label(QStringLiteral("雷达坐标：等待数据"), "caption");
     position_->setWordWrap(true);
@@ -583,6 +600,7 @@ void Window::buildCombatView() {
     mapLayout->setContentsMargins(0, 0, 0, 0);
     mapHud_ = new Map;
     mapHud_->setProperty("demoMode", demoMode_);
+    mapHud_->setMirror(preferences().value("view/mirror", qEnvironmentVariableIntValue("HJ_MAP_MIRROR") == 1).toBool());
     mapLayout->addWidget(mapHud_);
     stack->addWidget(mapPage);
     stack->setCurrentIndex(0);

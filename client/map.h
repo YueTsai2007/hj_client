@@ -11,6 +11,7 @@ class Map : public QWidget {
 public:
     explicit Map(QWidget *parent = nullptr);
     void flip();
+    void setMirror(bool mirror) { mirror_ = mirror; update(); }   // 换边时整图镜像（含标记）
     void setRobotPosition(uint id, QPointF position, qreal yaw = qQNaN());
     void clearRobotPositions();
     void expireRobotPositions();
@@ -28,4 +29,5 @@ private:
     qreal calX_ = 0, calY_ = 0;       // 底图/坐标偏置（上赛场后标定用，画布像素）
     qreal calW_ = 0, calH_ = 0;       // 场地实际尺寸不标准时的宽高修正（画布像素）
     bool flipped_ = false;
+    bool mirror_ = false;
 };

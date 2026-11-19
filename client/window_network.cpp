@@ -1,5 +1,6 @@
 #include "window.h"
 #include "window_helpers.h"
+#include "field.h"
 #include "combat_view.h"
 #include "brand.h"
 #include "map.h"
@@ -185,7 +186,7 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
                 // demo 服务器直接发 0~1 归一化值，这里按量级自动判断。
                 qreal x = fields.value("x").toDouble();
                 qreal y = fields.value("y").toDouble();
-                if (x > 1.5 || y > 1.5) { x /= 28.0; y /= 15.0; }
+                if (x > 1.5 || y > 1.5) { x = field::normX(x); y = field::normY(y); }
                 if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
                     const uint robotId = static_cast<uint>(fields.value("robotId").toDouble());
                     const QPointF pos(x, y);
