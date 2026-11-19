@@ -1,6 +1,7 @@
 #include "window.h"
 #include "map.h"
 #include "topics.h"
+#include <QTimer>
 #include "window_helpers.h"
 #include <QFrame>
 #include <QHBoxLayout>
@@ -220,19 +221,25 @@ void Window::refreshSummary() {
             return QStringLiteral("<span style='color:%1'>%2%3</span>").arg(color,
                 d >= 0 ? QStringLiteral("+") : QString(), QString::number(d));
         };
+        // 参考 ClearWei：按“战局 / 资源”分组，用色条区分维度，数值加粗放大
+        const auto row = [](const QString &accent, const QString &name, qint64 value, const QString &diffHtml) {
+            return QStringLiteral(
+                "<tr>"
+                "<td style='color:%1;font-size:16px'>▍</td>"
+                "<td style='color:#c7d2de;font-size:13px'>%2</td>"
+                "<td align='right' style='color:#eaf1f7;font-size:19px;font-weight:700'>%3</td>"
+                "<td align='right' style='font-size:14px;font-weight:700'>%4</td>"
+                "</tr>").arg(accent, name, QString::number(value), diffHtml);
+        };
         QString html = QStringLiteral(
-            "<table cellspacing='2' width='100%'>"
-            "<tr><td><span style='color:#8da0b3'>控制度</span></td><td align='right'>%1</td><td align='right'>%2</td></tr>"
-            "<tr><td><span style='color:#8da0b3'>总伤害</span></td><td align='right'>%3</td><td align='right'>%4</td></tr>"
-            "<tr><td><span style='color:#8da0b3'>总血量</span></td><td align='right'>%5</td><td align='right'>%6</td></tr>"
-            "<tr><td><span style='color:#8da0b3'>剩余经济</span></td><td align='right' colspan='2'>%7</td></tr>"
-            "</table>")
-            .arg(QString::number(cpAlly), diff(cpAlly, cpEnemy),
-                 QString::number(dmgAlly), diff(dmgAlly, dmgEnemy),
-                 QString::number(hpAlly), diff(hpAlly, hpEnemy),
-                 QString::number(gold));
-
-        // 伤害拆解无法归因到具体兵种，按需求不展示。
+            "<table width='100%' cellspacing='3'>"
+            "<tr><td colspan='4' style='color:#8da0b3;font-size:11px;letter-spacing:2px'>战 局</td></tr>");
+        html += row(QStringLiteral("#e8a33d"), QStringLiteral("控制度"), cpAlly, diff(cpAlly, cpEnemy));
+        html += row(QStringLiteral("#ff5a67"), QStringLiteral("总伤害"), dmgAlly, diff(dmgAlly, dmgEnemy));
+        html += row(QStringLiteral("#7fe0a8"), QStringLiteral("总血量"), hpAlly, diff(hpAlly, hpEnemy));
+        html += QStringLiteral("<tr><td colspan='4' style='color:#8da0b3;font-size:11px;letter-spacing:2px'>资 源</td></tr>");
+        html += row(QStringLiteral("#3ea8ff"), QStringLiteral("剩余经济"), gold, QString());
+        html += QStringLiteral("</table>");
         analysis_->setText(html);
     }
     if (modulePanel_) {

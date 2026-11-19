@@ -86,7 +86,8 @@ void Map::paintEvent(QPaintEvent *) {
         const uint hp = hpIndex < health_.size() ? health_[hpIndex] : 0;
         const uint maxHp = hpIndex < maxHealth_.size() ? maxHealth_[hpIndex] : 0;
         const bool self = ownId_ != 0 && id == ownId_;
-        const QColor fill = self ? QColor("#7fe0a8") : (id < 100 ? QColor("#ff5a67") : QColor("#3ea8ff"));
+        // 自己用绿色（最醒目）；其余按编号阵营取红/蓝
+        const QColor fill = self ? QColor("#7fe0a8") : (id >= 100 ? QColor("#3ea8ff") : QColor("#ff5a67"));
 
         // 朝向箭头（有 yaw 时按角度旋转，无则朝上）
         painter.save();
@@ -100,7 +101,7 @@ void Map::paintEvent(QPaintEvent *) {
         painter.restore();
 
         // 机体圆点（自己不变大，只靠颜色区分）
-        painter.setPen(QPen(QColor(255, 255, 255, self ? 200 : 150), qMax(1.0, radius * 0.16)));
+        painter.setPen(QPen(QColor(255, 255, 255, 170), qMax(1.0, radius * 0.14)));
         painter.setBrush(fill);
         painter.drawEllipse(point, radius, radius);
         // 编号：始终绘制，字号不小于 8px，加深色描边保证小地图上也看得清

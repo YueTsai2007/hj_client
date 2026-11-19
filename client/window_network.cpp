@@ -253,7 +253,7 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
     auto *summaryTimer = new QTimer(this);
     connect(summaryTimer, &QTimer::timeout, this, [this] { markStale(); refreshSummary(); updateAlert(); });
     summaryTimer->start(200);
-    QTimer::singleShot(400, this, &Window::arrangeModules);
+    QTimer::singleShot(400, this, &Window::applyDefaultLayout);
 }
 void Window::addEvent(const QString &text) {
     const QString line = QDateTime::currentDateTime().toString("HH:mm:ss") + QStringLiteral("  ") + text;

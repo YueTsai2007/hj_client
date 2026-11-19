@@ -17,6 +17,7 @@ class QProgressBar;
 class QListWidget;
 class Map;
 class CombatView;
+class FloatingPanel;
 class Crosshair;
 class QTimer;
 class QStackedWidget;
@@ -45,6 +46,7 @@ private:
     void layoutCombatHud(const QRectF &content);
     void updateCombatHud();
     void buildExchangePanel();
+    void buildModulePanelDock();
     void toggleExchangePanel();
     void updateExchangePanel();
     void sendExchange();
@@ -54,6 +56,7 @@ private:
     void focusPrimaryView();
     QWidget *addModule(const char *id, const QString &title, QWidget *content);
     void arrangeModules();
+    void applyDefaultLayout();
     void buildCompactPage();
     void moveModule(QWidget *source, QWidget *target);
     void addEvent(const QString &text);
@@ -92,6 +95,7 @@ private:
     QWidget *metricsPage_ = nullptr;
     bool demoMode_ = false;
     bool mapPriority_ = true;
+    bool videoPriority_ = false;   // 数据视图默认：地图占主视图，F2 可临时换成图传
     QWidget *details_ = nullptr;
     QListWidget *topics_ = nullptr;
     QPlainTextEdit *messageDetails_ = nullptr;
@@ -105,6 +109,7 @@ private:
     QLabel *analysis_ = nullptr;
     QLabel *topBar_ = nullptr;
     QWidget *modulePanel_ = nullptr;
+    FloatingPanel *modulePanelDock_ = nullptr;
     std::array<QLabel *, 8> moduleDots_{};
     QProgressBar *baseRedBar_ = nullptr, *baseBlueBar_ = nullptr;
     VideoView *videoView_ = nullptr;
@@ -155,8 +160,11 @@ private:
 
     // 兑换面板（O 键）
     QWidget *exchangePanel_ = nullptr;
+    FloatingPanel *detailsPanel_ = nullptr;
     QLabel *exchangeKind_ = nullptr, *exchangeOwned_ = nullptr, *exchangeLimit_ = nullptr;
     QLabel *exchangeGold_ = nullptr, *exchangeHint_ = nullptr;
+    QLabel *exchangeStatus_ = nullptr;
     QSpinBox *exchangeQty_ = nullptr;
+    class QCheckBox *exchangeRemote_ = nullptr;
     int exchangeCmdType_ = 0;
 };

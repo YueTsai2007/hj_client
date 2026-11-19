@@ -1,5 +1,6 @@
 #include "window.h"
 #include "window_helpers.h"
+#include "floating_panel.h"
 #include "combat_view.h"
 #include "map.h"
 #include "brand.h"
@@ -325,9 +326,14 @@ void Window::setupUi() {
     switchView->setAutoRepeat(false);
     connect(switchView, &QAction::triggered, this, [this] {
         if (!combat_ || !mainStack_) return;
-        // 只在作战视图里切“图传/地图”；数据视图两者同时显示，不参与切换
-        if (mainStack_->currentWidget() != combat_) mainStack_->setCurrentWidget(combat_);
-        combat_->stack()->setCurrentIndex(1 - combat_->stack()->currentIndex());
+        if (mainStack_->currentWidget() == combat_) {
+            // 作战视图：切图传 / 地图页
+            combat_->stack()->setCurrentIndex(1 - combat_->stack()->currentIndex());
+        } else {
+            // 数据视图：主视图与右下小视图互换（临时看图传细节）
+            videoPriority_ = !videoPriority_;
+            arrangeModules();
+        }
     });
     auto *crosshairToggle = toolbar->addAction(QStringLiteral("准星  F4"));
     crosshairToggle->setCheckable(true);
@@ -349,15 +355,19 @@ void Window::setupUi() {
         mainStack_->setCurrentIndex(mainStack_->currentWidget() == combat_ ? 1 : 0);
         updateCombatHud();
     });
-    connect(toolbar->addAction(QStringLiteral("消息详情")), &QAction::triggered, this, &Window::showDetails);
-    connect(toolbar->addAction(QStringLiteral("恢复默认布局")), &QAction::triggered, this, [this] {
-        sidebarModules_ = defaultSidebar_;
-        mapPriority_ = true;
-        detailsDock_->hide();
-        arrangeModules();
-        workspace_->setSizes({width() * 2 / 3, width() / 3});
-        sidebar_->setSizes({1, 1, 1, 1, 0});
+    connect(toolbar->addAction(QStringLiteral("兑换 / 买活  O")), &QAction::triggered, this, &Window::toggleExchangePanel);
+    connect(toolbar->addAction(QStringLiteral("状态检测")), &QAction::triggered, this, [this] {
+        if (!modulePanelDock_) return;
+        if (modulePanelDock_->isVisible()) {
+            modulePanelDock_->hide();
+        } else {
+            modulePanelDock_->move(qMax(20, width() - modulePanelDock_->width() - 40), 160);
+            modulePanelDock_->show();
+            modulePanelDock_->raise();
+        }
     });
+    connect(toolbar->addAction(QStringLiteral("消息详情")), &QAction::triggered, this, &Window::showDetails);
+    connect(toolbar->addAction(QStringLiteral("恢复默认布局")), &QAction::triggered, this, &Window::applyDefaultLayout);
 
     QVBoxLayout *videoLayout, *mapLayout, *allyLayout, *enemyLayout, *eventLayout, *metricsLayout, *analysisLayout, *hudLayout;
     auto *videoPanel = panel(QStringLiteral("图传画面"), videoLayout);
@@ -418,7 +428,7 @@ void Window::setupUi() {
         moduleDots_[static_cast<size_t>(i)] = dot;
         moduleGrid->addWidget(dot, i / 4, i % 4);
     }
-    analysisLayout->addWidget(modulePanel_);
+    // 模块自检独立成悬浮面板（见 buildModulePanelDock），不占战术数据位置
 
     auto *localPanel = new QWidget;
     auto *local = new QHBoxLayout(localPanel);
@@ -448,8 +458,8 @@ void Window::setupUi() {
     bottomLeftLayout_->addWidget(eventsModule_, 1);
     bottomLeftLayout_->addWidget(analysisModule_, 1);
     sidebarModules_ = {allyModule_, videoDock_};
-    sidebar_->setMinimumWidth(360);
-    sidebar_->setMaximumWidth(460);
+    sidebar_->setMinimumWidth(500);
+    sidebar_->setMaximumWidth(640);
     localPanel->setFixedHeight(58);
     shellLayout->addWidget(localPanel);
 
@@ -463,7 +473,6 @@ void Window::setupUi() {
     setWindowIcon(QIcon(brand::logo(128)));
 
     setupDetails();
-    sidebarModules_.append(detailsDock_);
     if (roleNeedsPanel()) {
         auto *rolePanel = new QWidget;
         auto *roleLayout = new QVBoxLayout(rolePanel);
@@ -518,10 +527,12 @@ void Window::setupUi() {
     const int envWidth = qEnvironmentVariableIntValue("HJ_WIN_W");
     const int envHeight = qEnvironmentVariableIntValue("HJ_WIN_H");
     if (envWidth > 0 && envHeight > 0) resize(envWidth, envHeight);
-    workspace_->setSizes({860, 490});
+    // 左列：主视图 + 底部事件/数据；右列固定宽一些，避免地图区域太扁
+    workspace_->setSizes({qMax(width() - 560, 680), 560});
 
     buildCombatView();
     buildExchangePanel();
+    buildModulePanelDock();
     mainStack_->addWidget(combat_);
     mainStack_->addWidget(dataPage_);
     mainStack_->setCurrentWidget(combat_);
@@ -988,22 +999,16 @@ void Window::updateCombatHud() {
 }
 
 void Window::buildExchangePanel() {
-    exchangePanel_ = new QFrame(this);
-    exchangePanel_->setObjectName("exchangePanel");
-    exchangePanel_->setStyleSheet(QStringLiteral(
-        "QFrame#exchangePanel{background:rgba(9,14,21,0.96);border:1px solid rgba(232,163,61,0.45);"
-        "border-radius:12px;} QLabel{color:#eaf1f7;}"));
-    exchangePanel_->setFixedSize(460, 306);
-    exchangePanel_->hide();
+    auto *panel = new FloatingPanel(QStringLiteral("弹丸兑换"), this);
+    exchangePanel_ = panel;
+    panel->hide();
+    panel->resize(520, 390);
 
-    auto *layout = new QVBoxLayout(exchangePanel_);
-    layout->setContentsMargins(22, 18, 22, 18);
+    auto *layout = panel->body();
+    layout->setContentsMargins(4, 0, 4, 0);
     layout->setSpacing(10);
-    auto *title = new QLabel(QStringLiteral("弹丸兑换"), exchangePanel_);
-    title->setStyleSheet(QStringLiteral("color:#ffc971;font-size:18px;font-weight:700;"));
-    layout->addWidget(title);
-    exchangeKind_ = new QLabel(exchangePanel_);
-    exchangeKind_->setStyleSheet(QStringLiteral("color:#eaf1f7;font-size:14px;"));
+    exchangeKind_ = new QLabel(panel);
+    exchangeKind_->setStyleSheet(QStringLiteral("color:#eaf1f7;font-size:16px;"));
     layout->addWidget(exchangeKind_);
     auto *grid = new QGridLayout;
     grid->setHorizontalSpacing(12);
@@ -1033,9 +1038,16 @@ void Window::buildExchangePanel() {
     qtyRow->addWidget(qtyLabel);
     qtyRow->addWidget(exchangeQty_, 1);
     layout->addLayout(qtyRow);
+    exchangeRemote_ = new QCheckBox(QStringLiteral("远程兑换（协议 cmd_type 5 / 6）"), panel);
+    exchangeRemote_->setStyleSheet(QStringLiteral("color:#8da0b3;font-size:13px;"));
+    layout->addWidget(exchangeRemote_);
     exchangeHint_ = new QLabel(QStringLiteral("数量须为 10 的倍数；发送后由客户端上行"), exchangePanel_);
-    exchangeHint_->setStyleSheet(QStringLiteral("color:#ffc46a;font-size:12px;"));
+    exchangeHint_->setStyleSheet(QStringLiteral("color:#ffc46a;font-size:13px;"));
     layout->addWidget(exchangeHint_);
+    exchangeStatus_ = new QLabel(exchangePanel_);
+    exchangeStatus_->setStyleSheet(QStringLiteral("color:#7fe0a8;font-size:14px;font-weight:700;"));
+    layout->addWidget(exchangeStatus_);
+    layout->addStretch();
     auto *buttons = new QHBoxLayout;
     auto *close = new QPushButton(QStringLiteral("关闭"), exchangePanel_);
     auto *send = new QPushButton(QStringLiteral("发送兑换"), exchangePanel_);
@@ -1082,8 +1094,11 @@ void Window::updateExchangePanel() {
     }
     const QString kind = exchangeCmdType_ == 2 ? QStringLiteral("42mm") : exchangeCmdType_ == 1 ? QStringLiteral("17mm") : QString();
     exchangeKind_->setText(exchangeCmdType_ == 0
-        ? QStringLiteral("当前兵种不支持远程兑换")
-        : QStringLiteral("类型：%1 弹丸（远程兑换）").arg(kind));
+        ? QStringLiteral("当前兵种不支持兑换")
+        : QStringLiteral("类型：%1 弹丸（普通 cmd_type %2 / 远程 %3）")
+              .arg(kind)
+              .arg(exchangeCmdType_ == 2 ? 2 : 1)
+              .arg(exchangeCmdType_ == 2 ? 6 : 5));
     const auto number = [](const QJsonObject &object, const char *key) {
         const auto value = object.value(QLatin1String(key));
         return value.isDouble() ? QString::number(value.toInt()) : QStringLiteral("--");
@@ -1092,9 +1107,8 @@ void Window::updateExchangePanel() {
     exchangeLimit_->setText(number(messageFields("Buff"), "buffLevel"));
     exchangeGold_->setText(number(messageFields("GlobalLogisticsStatus"), "remainingEconomy"));
     exchangeQty_->setEnabled(exchangeCmdType_ != 0);
-    exchangeHint_->setText(exchangeCmdType_ != 0
-        ? QStringLiteral("数量须为 10 的倍数；发送后由客户端上行")
-        : QStringLiteral("英雄=42mm，步兵=17mm；其他兵种不支持"));
+    if (exchangeCmdType_ == 0) exchangeHint_->setText(QStringLiteral("英雄=42mm，步兵=17mm；其他兵种不支持"));
+    // 刷新只更新数值，不覆盖提示/结果（避免“发送成功”被立刻刷掉）
 }
 
 void Window::sendExchange() {
@@ -1109,14 +1123,33 @@ void Window::sendExchange() {
         return;
     }
     auto command = std::make_unique<rm2027::CommonCommand>();
-    command->cmd_type = static_cast<uint32_t>(exchangeCmdType_);
+    // 协议 cmd_type：1=兑换17mm 2=兑换42mm 5=远程兑换发弹量 6=远程兑换血量
+    int cmdType = exchangeCmdType_;
+    if (exchangeRemote_ && exchangeRemote_->isChecked()) cmdType = exchangeCmdType_ == 2 ? 6 : 5;
+    command->cmd_type = static_cast<uint32_t>(cmdType);
     command->param = static_cast<uint32_t>(quantity);
     if (client_->send(std::move(command))) {
-        exchangeHint_->setText(QStringLiteral("已发送：兑换 %1 发 %2").arg(quantity).arg(exchangeCmdType_ == 2 ? QStringLiteral("42mm") : QStringLiteral("17mm")));
+        // 协议中 CommonCommand 没有结果回执消息，这里只确认“已发送”
+        if (exchangeStatus_) {
+            exchangeStatus_->setStyleSheet(QStringLiteral("color:#7fe0a8;font-size:14px;font-weight:700;"));
+            exchangeStatus_->setText(QStringLiteral("✔ 已发送：兑换 %1 发 %2")
+                                         .arg(quantity)
+                                         .arg(exchangeCmdType_ == 2 ? QStringLiteral("42mm") : QStringLiteral("17mm")));
+            QTimer::singleShot(4000, this, [this] { if (exchangeStatus_) exchangeStatus_->clear(); });
+        }
         addEvent(QStringLiteral("兑换请求：%1 发（%2）").arg(quantity).arg(exchangeCmdType_ == 2 ? QStringLiteral("42mm") : QStringLiteral("17mm")));
-    } else {
-        exchangeHint_->setText(QStringLiteral("发送失败（未连接或被限流）"));
+    } else if (exchangeStatus_) {
+        exchangeStatus_->setStyleSheet(QStringLiteral("color:#ff8a93;font-size:14px;font-weight:700;"));
+        exchangeStatus_->setText(QStringLiteral("✘ 发送失败（未连接或被限流）"));
+        QTimer::singleShot(4000, this, [this] { if (exchangeStatus_) { exchangeStatus_->clear(); exchangeStatus_->setStyleSheet(QStringLiteral("color:#7fe0a8;font-size:14px;font-weight:700;")); } });
     }
+}
+
+void Window::buildModulePanelDock() {
+    modulePanelDock_ = new FloatingPanel(QStringLiteral("状态检测"), this);
+    modulePanelDock_->body()->addWidget(modulePanel_);
+    modulePanelDock_->resize(360, 200);
+    modulePanelDock_->hide();
 }
 
 void Window::keyPressEvent(QKeyEvent *event) {
@@ -1177,9 +1210,14 @@ void Window::sendRespawn() {
     command->param = 0;
     if (client_->send(std::move(command))) {
         addEvent(QStringLiteral("买活请求已发送"));
-        if (exchangeHint_) exchangeHint_->setText(QStringLiteral("已发送买活请求（cmd_type=4，待协议核对）"));
-    } else if (exchangeHint_) {
-        exchangeHint_->setText(QStringLiteral("买活发送失败（未连接）"));
+        if (exchangeStatus_) {
+            exchangeStatus_->setStyleSheet(QStringLiteral("color:#7fe0a8;font-size:14px;font-weight:700;"));
+            exchangeStatus_->setText(QStringLiteral("✔ 已发送：兑换立即复活（cmd_type=4）"));
+            QTimer::singleShot(4000, this, [this] { if (exchangeStatus_) exchangeStatus_->clear(); });
+        }
+    } else if (exchangeStatus_) {
+        exchangeStatus_->setText(QStringLiteral("✘ 买活发送失败（未连接）"));
+        QTimer::singleShot(4000, this, [this] { if (exchangeStatus_) exchangeStatus_->clear(); });
     }
 }
 
@@ -1208,24 +1246,36 @@ QWidget *Window::addModule(const char *id, const QString &title, QWidget *conten
 
 void Window::arrangeModules() {
     const auto previousSizes = sidebar_->sizes();
-    // 左列：上地图、下图传（原分屏保留，仅改为上下叠放）
-    primaryLayout_->addWidget(mapDock_);
+    // 左列：主视图（地图或图传，F2 互换）+ 下方事件/数据
+    QWidget *primaryView = videoPriority_ ? videoDock_ : mapDock_;
+    QWidget *secondaryView = videoPriority_ ? mapDock_ : videoDock_;
+    primaryLayout_->addWidget(primaryView);
     primaryLayout_->addWidget(bottomLeft_);
-    primaryLayout_->setStretch(0, 7);
+    primaryLayout_->setStretch(0, 8);
     primaryLayout_->setStretch(1, 2);
-    mapDock_->show();
-    videoDock_->show();
-    for (int index = 0; index < sidebarModules_.size(); ++index) {
-        auto *module = sidebarModules_.at(index);
-        sidebar_->insertWidget(index, module);
-        sidebar_->setStretchFactor(index, index == 0 ? 7 : 2);
-        if (module != detailsDock_) module->show();
+    primaryView->show();
+    secondaryView->show();
+    // 右列：双方机器人（上）+ 副视图（下）
+    QList<QWidget *> rightColumn{allyModule_, secondaryView};
+    for (int index = 0; index < rightColumn.size(); ++index) {
+        sidebar_->insertWidget(index, rightColumn.at(index));
+        sidebar_->setStretchFactor(index, index == 0 ? 2 : 3);
+        rightColumn.at(index)->show();
     }
     if (previousSizes.size() == sidebar_->count())
         sidebar_->setSizes(previousSizes);
-    // 右列：双方机器人给足高度（4 台各一行），数据/事件分剩下的
     const int columnHeight = qMax(sidebar_->height(), 720);
-    sidebar_->setSizes({columnHeight * 62 / 100, columnHeight * 38 / 100});
+    sidebar_->setSizes({columnHeight * 55 / 100, columnHeight * 45 / 100});
+}
+
+void Window::applyDefaultLayout() {
+    // 启动与“恢复默认布局”共用同一套比例，避免两处数值不一致
+    videoPriority_ = false;
+    if (detailsDock_) detailsDock_->hide();
+    arrangeModules();
+    workspace_->setSizes({qMax(width() - 560, 680), 560});
+    const int columnHeight = qMax(sidebar_->height(), 720);
+    sidebar_->setSizes({columnHeight * 55 / 100, columnHeight * 45 / 100});
 }
 
 void Window::moveModule(QWidget *source, QWidget *target) {
@@ -1289,35 +1339,12 @@ bool Window::roleNeedsPanel() const {
 
 void Window::closeEvent(QCloseEvent *event) {
     auto settings = preferences();
-    QStringList order;
-    for (auto *module : sidebarModules_) order << module->objectName();
-    settings.setValue("view/workspaceOrder", order);
-    settings.setValue("view/workspaceSizes", workspace_->saveState());
-    settings.setValue("view/sidebarSizes", sidebar_->saveState());
+    settings.setValue("view/fullScreen", isFullScreen());
     QMainWindow::closeEvent(event);
 }
 
 void Window::applyWindowPreferences() {
     const auto settings = preferences();
-    const auto order = settings.value("view/workspaceOrder").toStringList();
-    QList<QWidget *> restored;
-    for (const auto &name : order) {
-        auto *module = findChild<QWidget *>(name);
-        if (module && (defaultSidebar_.contains(module) || module == mapDock_) &&
-            !restored.contains(module))
-            restored.append(module);
-    }
-    if (restored.size() == defaultSidebar_.size() &&
-        restored.contains(mapDock_) != restored.contains(videoDock_) &&
-        restored.contains(detailsDock_) &&
-        restored.contains(defaultSidebar_[1]) && restored.contains(defaultSidebar_[2]) &&
-        restored.contains(defaultSidebar_[3])) {
-        sidebarModules_ = restored;
-        mapPriority_ = !restored.contains(mapDock_);
-        arrangeModules();
-    }
-    workspace_->restoreState(settings.value("view/workspaceSizes").toByteArray());
-    sidebar_->restoreState(settings.value("view/sidebarSizes").toByteArray());
     if (settings.value("view/fullScreen", false).toBool())
         setWindowState(windowState() | Qt::WindowFullScreen);
 }
