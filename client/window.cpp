@@ -537,11 +537,6 @@ void Window::setupUi() {
     mainStack_->addWidget(dataPage_);
     mainStack_->setCurrentWidget(combat_);
     if (qEnvironmentVariableIntValue("HJ_START_DATA_VIEW") == 1) mainStack_->setCurrentWidget(dataPage_);
-    if (qEnvironmentVariableIntValue("HJ_DOCKS") == 1) {
-        buildDockPage();
-        mainStack_->addWidget(dockPage_);
-        mainStack_->setCurrentWidget(dockPage_);
-    }
 }
 
 namespace {
@@ -582,6 +577,7 @@ void Window::buildCombatView() {
     auto makeCard = [this, hud](const QRect &base) {
         auto *card = new HudCard(hud);
         hudGeometry_.append({card, base});
+        hudCards_.append(card);
         return card;
     };
     const QColor muted("#8da0b3");
@@ -808,8 +804,8 @@ void Window::layoutCombatHud(const QRectF &content) {
                                        .arg(entry.first->property("hudColor").toString())
                                        .arg(px));
     }
-    for (const auto &entry : hudGeometry_)
-        static_cast<HudCard *>(entry.first)->setRadius(12.0 * hudScale_);
+    for (auto *card : hudCards_)
+        card->setRadius(12.0 * hudScale_);
     // 卡片内部边距同步缩放，避免小窗口下内容溢出卡片（如计时卡压字）。
     for (const auto &entry : hudGeometry_) {
         if (auto *layout = entry.first->layout()) {
@@ -1165,42 +1161,11 @@ void Window::keyPressEvent(QKeyEvent *event) {
 }
 
 void Window::buildCompactPage() {
-    compactPage_ = new QWidget;
-    auto *grid = new QGridLayout(compactPage_);
-    grid->setContentsMargins(8, 8, 8, 8);
-    grid->setSpacing(8);
-    grid->addWidget(allyModule_, 0, 0);
-    grid->addWidget(mapDock_, 0, 1);
-    grid->addWidget(enemyModule_, 0, 2);
-    grid->addWidget(eventsModule_, 1, 0);
-    grid->addWidget(analysisModule_, 1, 1);
-    grid->addWidget(videoDock_, 1, 2);
-    grid->setColumnStretch(0, 2);
-    grid->setColumnStretch(1, 5);
-    grid->setColumnStretch(2, 2);
-    grid->setRowStretch(0, 5);
-    grid->setRowStretch(1, 2);
+    // 已废弃：会把同一批控件重新挂到另一个页面，导致原页面为空；保留空实现避免旧调用点报错。
 }
 
 void Window::buildDockPage() {
-    auto *host = new QMainWindow;
-    host->setObjectName("dockHost");
-    host->setDockNestingEnabled(true);
-    host->setCentralWidget(mapDock_);
-    const auto makeDock = [host](const QString &title, QWidget *content, Qt::DockWidgetArea area) {
-        auto *dock = new QDockWidget(title, host);
-        dock->setObjectName(title);
-        dock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
-        dock->setWidget(content);
-        host->addDockWidget(area, dock);
-        content->show();
-        return dock;
-    };
-    makeDock(QStringLiteral("图传"), videoDock_, Qt::RightDockWidgetArea);
-    makeDock(QStringLiteral("双方机器人"), allyModule_, Qt::RightDockWidgetArea);
-    makeDock(QStringLiteral("数据计算"), analysisModule_, Qt::RightDockWidgetArea);
-    makeDock(QStringLiteral("战场事件"), eventsModule_, Qt::RightDockWidgetArea);
-    dockPage_ = host;
+    // 已废弃：同上，dock 方案不再启用。
 }
 
 void Window::sendRespawn() {

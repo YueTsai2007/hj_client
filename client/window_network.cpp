@@ -257,7 +257,8 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
 }
 void Window::addEvent(const QString &text) {
     const QString line = QDateTime::currentDateTime().toString("HH:mm:ss") + QStringLiteral("  ") + text;
-    auto *item = new QListWidgetItem(line, events_);
+    // 先构造未插入的 item，再 insertItem(0)，避免“同一 item 已在列表中再次插入”
+    auto *item = new QListWidgetItem(line);
     // 参考 ClearWei：判罚=红、兑换/经济=绿、阶段/比分=蓝、其它事件=金
     QColor color("#ffc971");
     if (text.contains(QStringLiteral("判罚")) || text.contains(QStringLiteral("扣血")) || text.contains(QStringLiteral("罚")))

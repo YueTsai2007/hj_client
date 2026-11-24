@@ -17,6 +17,7 @@ class QProgressBar;
 class QListWidget;
 class Map;
 class CombatView;
+class HudCard;
 class FloatingPanel;
 class Crosshair;
 class QTimer;
@@ -80,10 +81,8 @@ private:
     std::map<std::string, MessageRecord> records_;
     QWidget *mapDock_ = nullptr, *videoDock_ = nullptr, *detailsDock_ = nullptr, *roleDock_ = nullptr;
     QWidget *allyModule_ = nullptr, *enemyModule_ = nullptr, *eventsModule_ = nullptr, *analysisModule_ = nullptr;
-    QWidget *compactPage_ = nullptr;
     QWidget *bottomLeft_ = nullptr;
     class QHBoxLayout *bottomLeftLayout_ = nullptr;
-    QWidget *dockPage_ = nullptr;
     void buildDockPage();
     QLabel *roleInfo_ = nullptr;
     Role role_ = Role::Unknown;
@@ -153,6 +152,7 @@ private:
     std::array<QLabel *, 4> hudAllyHp_{}, hudEnemyHp_{};
     std::array<QProgressBar *, 4> hudAllyHpBar_{}, hudEnemyHpBar_{};
     QVector<QPair<QWidget *, QRect>> hudGeometry_;
+    QVector<HudCard *> hudCards_;
     QVector<QPair<QLabel *, int>> hudFonts_;
     qreal hudScale_ = 1.0;
     std::map<std::string, uint64_t> hudCounts_;
