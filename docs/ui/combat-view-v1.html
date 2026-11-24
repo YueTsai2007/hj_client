@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>悍匠 · 作战视图线框 v1</title>
+<style>
+  :root{
+    --brand:#e8a33d; --brand2:#ffc971;
+    --red:#ff5a67; --blue:#3ea8ff;
+    --txt:#eaf1f7; --muted:#8da0b3;
+    --card:rgba(10,16,24,.72);
+    --line:rgba(148,176,205,.18);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:#05080d;
+    font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif;color:var(--txt)}
+  .stage{position:relative;width:1920px;height:1080px;
+    background:radial-gradient(1200px 700px at 50% 40%, #0d1720 0%, #05080d 70%);}
+  /* 视频占位 */
+  .video{position:absolute;inset:0;background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 2px, transparent 2px 4px),
+      radial-gradient(900px 600px at 50% 55%, #16232e, #070c12 75%);}
+  .video .tag{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    color:#4a6076;font-size:18px;letter-spacing:.22em}
+  /* 准星 */
+  .cross{position:absolute;left:50%;top:50%;width:120px;height:120px;transform:translate(-50%,-50%);opacity:.5}
+  .cross i{position:absolute;background:rgba(255,255,255,.55)}
+  .cross .h{left:0;top:59px;width:44px;height:2px}
+  .cross .h2{right:0;top:59px;width:44px;height:2px}
+  .cross .v{top:0;left:59px;width:2px;height:44px}
+  .cross .v2{bottom:0;left:59px;width:2px;height:44px}
+  .cross .dot{left:56px;top:56px;width:8px;height:8px;border-radius:50%;background:var(--brand2)}
+  /* 通用卡片 */
+  .card{position:absolute;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;backdrop-filter:blur(6px);}
+  .cap{font-size:11px;letter-spacing:.16em;color:var(--muted)}
+  /* 左上 / 右上：基地血量 */
+  .base{top:32px;padding:12px 20px;min-width:320px}
+  .base.left{left:36px}
+  .base.right{right:36px;text-align:right}
+  .base .hp{font-size:40px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+  .base.left .hp{color:var(--red)} .base.right .hp{color:var(--blue)}
+  .base .hp small{font-size:15px;color:var(--muted);font-weight:600}
+  .base .bar{margin-top:9px}
+  .base.right .bar>i{margin-left:auto}
+  /* 中上：倒计时 */
+  .clock{left:50%;top:26px;transform:translateX(-50%);text-align:center;padding:8px 30px}
+  .clock .t{font-size:56px;font-weight:800;letter-spacing:.04em;color:#fff;
+    font-variant-numeric:tabular-nums;text-shadow:0 0 24px rgba(232,163,61,.35)}
+  .clock .p{font-size:12px;color:var(--brand2);letter-spacing:.3em;margin-top:-2px}
+  .clock .sc{font-size:12px;color:var(--muted);letter-spacing:.12em;margin-top:6px}
+  /* 前哨站 */
+  .outposts{left:50%;top:168px;transform:translateX(-50%);display:flex;gap:0;padding:6px 4px}
+  .outposts .cell{padding:2px 22px;text-align:center}
+  .outposts .cell + .cell{border-left:1px solid var(--line)}
+  .outposts .k{font-size:10px;letter-spacing:.14em;color:var(--muted)}
+  .outposts .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px}
+  /* 右上：状态 */
+  .status{right:36px;top:126px;padding:8px 14px;font-size:12px;color:var(--muted);
+    display:flex;gap:14px;align-items:center}
+  .status b{color:#7fe0a8;font-weight:600}
+  .dotg{width:7px;height:7px;border-radius:50%;background:#4ade9a;display:inline-block;margin-right:6px}
+  /* 左下：本机 */
+  .self{left:36px;bottom:96px;width:380px;padding:16px 18px}
+  .self .row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .self .id{font-size:26px;font-weight:800;color:var(--brand2)}
+  .self .name{font-size:14px;color:var(--muted)}
+  .self .hp{font-size:34px;font-weight:800;line-height:1;margin-left:auto}
+  .bar{height:6px;border-radius:3px;background:rgba(255,255,255,.10);overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:3px}
+  .kv{display:flex;gap:22px;margin-top:12px}
+  .kv .k{font-size:11px;color:var(--muted);letter-spacing:.1em}
+  .kv .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+  /* 右下：小地图 */
+  .minimap{right:36px;bottom:96px;width:352px;padding:10px}
+  .minimap .head{display:flex;justify-content:space-between;align-items:center;
+    font-size:11px;color:var(--muted);letter-spacing:.12em;padding:2px 4px 8px}
+  .field{position:relative;height:196px;border-radius:8px;
+    background:linear-gradient(180deg,#0d1a22,#0a141b);border:1px solid rgba(232,163,61,.25);overflow:hidden}
+  .field .grid{position:absolute;inset:0;background-image:
+      linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px),
+      linear-gradient(0deg, rgba(255,255,255,.05) 1px, transparent 1px);
+    background-size:28px 28px}
+  .field .centerline{position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(232,163,61,.35)}
+  .mk{position:absolute;width:18px;height:18px;border-radius:50%;transform:translate(-50%,-50%);
+    font-size:10px;font-weight:700;display:grid;place-items:center;color:#fff;
+    border:1.5px solid rgba(255,255,255,.85)}
+  .mk.r{background:rgba(255,90,103,.85)} .mk.b{background:rgba(62,168,255,.85)}
+  .mk.self{box-shadow:0 0 0 4px rgba(255,201,113,.25)}
+  .legend{display:flex;gap:14px;font-size:11px;color:var(--muted);padding:8px 4px 0}
+  .legend i{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
+  /* 底部事件条 */
+  .ticker{left:36px;right:36px;bottom:36px;height:44px;display:flex;align-items:center;
+    gap:16px;padding:0 18px;font-size:13px}
+  .ticker .warn{color:#ffc46a}
+  .ticker .sep{color:rgba(148,176,205,.35)}
+  .ticker .right{margin-left:auto;color:var(--muted);font-size:12px}
+  /* 视图切换提示 */
+  .hint{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);
+    font-size:12px;color:rgba(141,160,179,.75);letter-spacing:.2em}
+  .hint kbd{border:1px solid var(--line);border-radius:4px;padding:1px 6px;margin-right:6px;
+    font-family:inherit;color:var(--brand2)}
+  .ver{position:absolute;left:40px;top:10px;font-size:10px;color:rgba(141,160,179,.5);letter-spacing:.18em}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="video"><div class="tag">1080P60 · H.265 图传画面（示意）</div></div>
+
+  <div class="cross"><i class="h"></i><i class="h2"></i><i class="v"></i><i class="v2"></i><i class="dot"></i></div>
+
+  <!-- 左上：己方基地（GlobalUnitStatus.baseHealth） -->
+  <div class="card base left">
+    <div class="cap">己方基地 · RED BASE</div>
+    <div class="hp">5000 <small>HP</small></div>
+    <div class="bar"><i style="width:100%;background:linear-gradient(90deg,#8f1f2a,#ff7e8b)"></i></div>
+  </div>
+
+  <!-- 右上：敌方基地（GlobalUnitStatus.enemyBaseHealth） -->
+  <div class="card base right">
+    <div class="cap">敌方基地 · BLUE BASE</div>
+    <div class="hp">4710 <small>HP</small></div>
+    <div class="bar"><i style="width:94%;background:linear-gradient(90deg,#3ea8ff,#8fd0ff)"></i></div>
+  </div>
+
+  <!-- 中上：倒计时（GameStatus） -->
+  <div class="card clock"><div class="t">06:27</div><div class="p">比赛中</div></div>
+
+  <!-- 前哨站（GlobalUnitStatus.outpost_R_health / outpost_B_health） -->
+  <div class="card outposts">
+    <div class="cell"><div class="k">己方前哨站</div><div class="v" style="color:#ff8a93">700</div></div>
+    <div class="cell"><div class="k">敌方前哨站</div><div class="v" style="color:#7cc8ff">650</div></div>
+  </div>
+
+  <!-- 右上：链路状态 -->
+  <div class="card status">
+    <span><span class="dotg"></span><b>已连接</b></span>
+    <span>图传 60 fps</span>
+    <span>MQTT 5 Hz</span>
+  </div>
+
+  <!-- 左下：本机（RobotDynamicStatus / RobotRespawnStatus） -->
+  <div class="card self">
+    <div class="row">
+      <span class="id">01</span><span class="name">英雄 · 本机</span>
+      <span class="hp">480<span style="font-size:16px;color:var(--muted)"> / 500</span></span>
+    </div>
+    <div class="bar"><i style="width:96%;background:linear-gradient(90deg,#c8353f,#ff7e8b)"></i></div>
+    <div class="kv">
+      <div><div class="k">弹量</div><div class="v">97</div></div>
+      <div><div class="k">热量</div><div class="v">6<span style="font-size:13px;color:var(--muted)"> / 120</span></div></div>
+      <div><div class="k">复活</div><div class="v" style="font-size:16px;color:var(--muted)">无需</div></div>
+    </div>
+  </div>
+
+  <!-- 右下：小地图（RadarInfoToClient / RobotPosition） -->
+  <div class="card minimap">
+    <div class="head"><span>战术地图</span><span>红方视角 · M 键收起</span></div>
+    <div class="field">
+      <div class="grid"></div><div class="centerline"></div>
+      <span class="mk r self" style="left:26%;top:38%">1</span>
+      <span class="mk r" style="left:38%;top:62%">3</span>
+      <span class="mk r" style="left:44%;top:30%">4</span>
+      <span class="mk r" style="left:20%;top:74%">7</span>
+      <span class="mk b" style="left:72%;top:36%">1</span>
+      <span class="mk b" style="left:64%;top:58%">3</span>
+      <span class="mk b" style="left:58%;top:70%">4</span>
+      <span class="mk b" style="left:78%;top:76%">7</span>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--red)"></i>红方</span>
+      <span><i style="background:var(--blue)"></i>蓝方</span>
+      <span style="margin-left:auto;color:#8da0b3">雷达 14s 前</span>
+    </div>
+  </div>
+
+  <!-- 底部：事件 / 告警 -->
+  <div class="card ticker">
+    <span class="warn">● 雷达数据已 14 秒未更新</span>
+    <span class="sep">|</span>
+    <span>21:39:16 判罚 1 · 5 秒 · 累计 1 次</span>
+    <span class="sep">|</span>
+    <span>21:39:03 事件 1 · 模拟赛况事件</span>
+    <span class="right">F2 切换地图 / 图传　·　F3 切换作战 / 数据视图</span>
+  </div>
+
+  <div class="hint"><kbd>F3</kbd>切换视图　<kbd>M</kbd>收起地图</div>
+  <div class="ver">WIREFRAME v2 · 2026-11-19 · 比分已移除</div>
+</div>
+</body>
+</html>

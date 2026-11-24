@@ -1,4 +1,5 @@
 #include "window.h"
+#include "floating_panel.h"
 #include "window_helpers.h"
 #include <QDateTime>
 #include <QComboBox>
@@ -34,8 +35,15 @@ QString topicTitle(const QString &name) {
 } // namespace
 
 void Window::showDetails() {
-    detailsDock_->setVisible(detailsDock_->isHidden());
-    refreshDetails();
+    if (!detailsPanel_) return;
+    if (detailsPanel_->isVisible()) {
+        detailsPanel_->hide();
+    } else {
+        detailsPanel_->move((width() - detailsPanel_->width()) / 2, (height() - detailsPanel_->height()) / 2);
+        detailsPanel_->show();
+        detailsPanel_->raise();
+        refreshDetails();
+    }
 }
 
 void Window::setupDetails() {
@@ -83,8 +91,11 @@ void Window::setupDetails() {
     connect(refreshTimer, &QTimer::timeout, this, [this] { if (details_->isVisible()) refreshDetails(); });
     refreshTimer->start(500);
     topics_->setCurrentRow(0);
-    detailsDock_ = addModule("details", QStringLiteral("消息详情"), details_);
-    detailsDock_->hide();
+    detailsPanel_ = new FloatingPanel(QStringLiteral("消息详情"), this);
+    detailsPanel_->body()->addWidget(details_);
+    detailsPanel_->resize(560, 560);
+    detailsPanel_->hide();
+    detailsDock_ = detailsPanel_;
 }
 
 void Window::refreshDetails() {

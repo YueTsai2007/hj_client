@@ -1,18 +1,18 @@
 #include "window.h"
 #include "window_helpers.h"
+#include "field.h"
+#include "combat_view.h"
 #include "brand.h"
 #include "map.h"
 #include "video_view.h"
 #include <QStyle>
 #include "rm2027/api/messages.h"
-#include "rm2027/api/detail/registry.h"
-#include "rm2027/protocol/codec.h"
-#include <google/protobuf/util/json_util.h>
 #include <QDateTime>
 #include <QImage>
 #include <QListWidget>
 #include <QMetaObject>
 #include <QPointer>
+#include <QStackedWidget>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QTimer>
@@ -66,8 +66,8 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
     opt.logMessages = false;
     client_ = std::make_unique<rm2027::Client>(opt);
     QPointer<Window> self(this);
-    client_->onRaw([self](const std::string &topic, const std::string &payload) {
-        if (self) self->recordRaw(topic, payload);
+    client_->onAny([self](std::unique_ptr<rm2027::Message> message) {
+        if (self) self->recordMessage(std::move(message));
     });
     client_->onConnectionChanged([self](bool connected) {
         if (!self) return;
@@ -95,6 +95,7 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
                 self->position_->setText(QStringLiteral("机器人坐标：连接断开")); self->radar_->setText(QStringLiteral("雷达坐标：连接断开"));
                 self->gameAge_.invalidate(); self->unitAge_.invalidate(); self->economyAge_.invalidate();
                 self->map_->clearRobotPositions();
+                if (self->mapHud_) self->mapHud_->clearRobotPositions();
                 self->positionAge_.invalidate(); self->radarAge_.invalidate();
                 self->refreshSummary();
             }
@@ -103,7 +104,8 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
     });
     client_->on<rm2027::GameStatus>([self](std::unique_ptr<rm2027::GameStatus> msg) {
         if (!self) return;
-        const auto data = *msg; const auto fields = self->messageFields(msg->name());
+        const auto data = *msg; const auto fields = toFields(*msg);
+        self->recordMessage(std::make_unique<rm2027::GameStatus>(data));
         QMetaObject::invokeMethod(self, [self, data, fields] {
             if (!self) return;
             self->scoreRed_->setText(fieldValue(fields, "redScore")); self->scoreBlue_->setText(fieldValue(fields, "blueScore"));
@@ -120,7 +122,8 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
     });
     client_->on<rm2027::GlobalUnitStatus>([self](std::unique_ptr<rm2027::GlobalUnitStatus> msg) {
         if (!self) return;
-        const auto data = *msg; const auto fields = self->messageFields(msg->name());
+        const auto data = *msg; const auto fields = toFields(*msg);
+        self->recordMessage(std::make_unique<rm2027::GlobalUnitStatus>(data));
         QMetaObject::invokeMethod(self, [self, data, fields] {
             if (!self) return;
             if (self->ownSide_ >= 0) {
@@ -135,12 +138,14 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
     });
     client_->on<rm2027::GlobalLogisticsStatus>([self](std::unique_ptr<rm2027::GlobalLogisticsStatus> msg) {
         if (!self) return;
-        const auto fields = self->messageFields(msg->name());
+        const auto data = *msg; const auto fields = toFields(*msg);
+        self->recordMessage(std::make_unique<rm2027::GlobalLogisticsStatus>(data));
         QMetaObject::invokeMethod(self, [self, fields] { if (!self) return; self->economy_->setText(QStringLiteral("剩余经济 %1　/　科技等级 %2").arg(fieldValue(fields, "remainingEconomy"), fieldValue(fields, "techLevel"))); self->economyAge_.restart(); }, Qt::QueuedConnection);
     });
     client_->on<rm2027::RobotStaticStatus>([self](std::unique_ptr<rm2027::RobotStaticStatus> msg) {
         if (!self) return;
-        const auto data = *msg; const auto fields = self->messageFields(msg->name());
+        const auto data = *msg; const auto fields = toFields(*msg);
+        self->recordMessage(std::make_unique<rm2027::RobotStaticStatus>(data));
         QMetaObject::invokeMethod(self, [self, data, fields] {
             if (!self || self->ownSide_ < 0) return;
             if (!fields.contains("robotId")) return;
@@ -159,7 +164,8 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
     });
     client_->on<rm2027::Event>([self](std::unique_ptr<rm2027::Event> msg) {
         if (!self) return;
-        const auto fields = self->messageFields(msg->name());
+        const auto data = *msg; const auto fields = toFields(*msg);
+        self->recordMessage(std::make_unique<rm2027::Event>(data));
         QMetaObject::invokeMethod(self, [self, fields] {
             if (!self) return;
             self->addEvent(QStringLiteral("事件 %1  %2").arg(fieldValue(fields, "eventId"), fieldValue(fields, "param")));
@@ -167,23 +173,34 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
     });
     client_->on<rm2027::RobotPosition>([self](std::unique_ptr<rm2027::RobotPosition> msg) {
         if (!self) return;
-        const auto fields = self->messageFields(msg->name());
+        const auto data = *msg; const auto fields = toFields(*msg);
+        self->recordMessage(std::make_unique<rm2027::RobotPosition>(data));
         QMetaObject::invokeMethod(self, [self, fields] {
             if (!self) return;
             self->position_->setText(QStringLiteral("机器人 %1：X %2　Y %3　Z %4　朝向 %5（原始值）")
                 .arg(fieldValue(fields, "robotId"), fieldValue(fields, "x"), fieldValue(fields, "y"), fieldValue(fields, "z"), fieldValue(fields, "yaw")));
             self->positionAge_.restart();
-            if (self->connected_ && self->demoMode_ &&
+            if (self->connected_ &&
                 fields.value("robotId").isDouble() && fields.value("x").isDouble() && fields.value("y").isDouble()) {
-                // Demo publisher uses a normalized field, with +Y pointing up.
-                self->map_->setRobotPosition(static_cast<uint>(fields.value("robotId").toDouble()),
-                    QPointF(fields.value("x").toDouble(), fields.value("y").toDouble()));
+                // 协议 0x0203：坐标为米，原点在红方补给站一角，X 向蓝方（场地 28m×15m）。
+                // demo 服务器直接发 0~1 归一化值，这里按量级自动判断。
+                qreal x = fields.value("x").toDouble();
+                qreal y = fields.value("y").toDouble();
+                if (x > 1.5 || y > 1.5) { x = field::normX(x); y = field::normY(y); }
+                if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+                    const uint robotId = static_cast<uint>(fields.value("robotId").toDouble());
+                    const QPointF pos(x, y);
+                    const qreal yaw = fields.value("yaw").isDouble() ? fields.value("yaw").toDouble() : qQNaN();
+                    self->map_->setRobotPosition(robotId, pos, yaw);
+                    if (self->mapHud_) self->mapHud_->setRobotPosition(robotId, pos, yaw);
+                }
             }
         }, Qt::QueuedConnection);
     });
     client_->on<rm2027::RadarInfoToClient>([self](std::unique_ptr<rm2027::RadarInfoToClient> msg) {
         if (!self) return;
-        const auto data = *msg; const auto fields = self->messageFields(msg->name());
+        const auto data = *msg; const auto fields = toFields(*msg);
+        self->recordMessage(std::make_unique<rm2027::RadarInfoToClient>(data));
         QMetaObject::invokeMethod(self, [self, data, fields] {
             if (!self) return;
             if (data.radar_single_robot_info.size() != 8) {
@@ -212,14 +229,14 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
     });
     client_->on<rm2027::PenaltyInfo>([self](std::unique_ptr<rm2027::PenaltyInfo> msg) {
         if (!self) return;
-        const auto fields = self->messageFields(msg->name());
+        const auto data = *msg; const auto fields = toFields(*msg);
+        self->recordMessage(std::make_unique<rm2027::PenaltyInfo>(data));
         QMetaObject::invokeMethod(self, [self, fields] {
             if (self) self->addEvent(QStringLiteral("判罚 %1 · %2 秒 · 累计 %3 次")
                 .arg(fieldValue(fields, "penaltyType"), fieldValue(fields, "penaltyEffectSec"),
                      fieldValue(fields, "totalPenaltyNum")));
         }, Qt::QueuedConnection);
     });
-    client_->onAny([](std::unique_ptr<rm2027::Message>) {});
     std::string error;
     if (!client_->start(&error)) connection_->setText(QStringLiteral("启动失败：") + QString::fromStdString(error));
     rm2027::VideoReceiverOptions videoOptions; videoOptions.port = videoPort;
@@ -228,6 +245,7 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
         videoStatus_->setText(QStringLiteral("启动失败：") + QString::fromStdString(error));
         videoLink_->setText(QStringLiteral("图传 · 启动失败"));
         videoView_->setPlaceholder(QStringLiteral("图传启动失败"));
+        if (combatVideo_) combatVideo_->setPlaceholder(QStringLiteral("图传启动失败"));
     }
     timer_ = new QTimer(this);
     connect(timer_, &QTimer::timeout, this, &Window::updateVideo);
@@ -235,9 +253,22 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
     auto *summaryTimer = new QTimer(this);
     connect(summaryTimer, &QTimer::timeout, this, [this] { markStale(); refreshSummary(); updateAlert(); });
     summaryTimer->start(200);
+    QTimer::singleShot(400, this, &Window::applyDefaultLayout);
 }
 void Window::addEvent(const QString &text) {
-    events_->insertItem(0, QDateTime::currentDateTime().toString("HH:mm:ss") + QStringLiteral("  ") + text);
+    const QString line = QDateTime::currentDateTime().toString("HH:mm:ss") + QStringLiteral("  ") + text;
+    // 先构造未插入的 item，再 insertItem(0)，避免“同一 item 已在列表中再次插入”
+    auto *item = new QListWidgetItem(line);
+    // 参考 ClearWei：判罚=红、兑换/经济=绿、阶段/比分=蓝、其它事件=金
+    QColor color("#ffc971");
+    if (text.contains(QStringLiteral("判罚")) || text.contains(QStringLiteral("扣血")) || text.contains(QStringLiteral("罚")))
+        color = QColor("#ff5a67");
+    else if (text.contains(QStringLiteral("兑换")) || text.contains(QStringLiteral("经济")) || text.contains(QStringLiteral("金币")))
+        color = QColor("#7fe0a8");
+    else if (text.contains(QStringLiteral("局")) || text.contains(QStringLiteral("阶段")) || text.contains(QStringLiteral("比分")))
+        color = QColor("#6fb6ff");
+    item->setForeground(color);
+    events_->insertItem(0, item);
     while (events_->count() > 100) delete events_->takeItem(events_->count() - 1);
 }
 
@@ -248,13 +279,16 @@ void Window::updateVideo() {
         info.stride >= static_cast<qint64>(info.width) * 3 &&
         frame_.size() >= static_cast<size_t>(info.stride) * info.height) {
         const QImage image(frame_.data(), info.width, info.height, info.stride, QImage::Format_BGR888);
-        videoView_->setFrame(image.copy());
+        const bool combatVisible = mainStack_ && combat_ && mainStack_->currentWidget() == combat_;
+        VideoView *target = combatVisible ? combatVideo_ : videoView_;
+        if (target) target->setFrame(image.copy());
         frameAge_.restart();
         gotVideo_ = true;
         videoLink_->setText(QStringLiteral("图传 · 正常"));
         videoStatus_->setText(QStringLiteral("接收中 · %1 × %2").arg(info.width).arg(info.height));
     } else if (frameAge_.isValid() && frameAge_.elapsed() > 2000) {
         videoView_->setPlaceholder(QStringLiteral("图传已中断"));
+        if (combatVideo_) combatVideo_->setPlaceholder(QStringLiteral("图传已中断"));
         videoLink_->setText(QStringLiteral("图传 · 中断"));
         videoStatus_->setText(QStringLiteral("等待恢复"));
         frameAge_.invalidate();
@@ -264,26 +298,40 @@ void Window::updateVideo() {
     }
 }
 
-void Window::recordRaw(const std::string &topic, const std::string &payload) {
-    const auto *desc = rm2027::findMessage(topic);
-    if (!desc) return;
-    std::string error;
-    auto message = rm2027::decodeMessage(rm2027::wireDescriptor(*desc), payload.data(), payload.size(), &error);
-    std::lock_guard<std::mutex> lock(recordsMutex_);
-    auto &record = records_[topic];
-    record.message = std::move(message);
-    record.error = std::move(error);
-    record.receivedAt = QDateTime::currentMSecsSinceEpoch();
-    record.receivedTick = monotonicMs();
-    ++record.count;
+QJsonObject Window::toFields(const rm2027::Message &message) {
+    const auto json = rm2027::toJson(message);
+    return QJsonDocument::fromJson(QByteArray::fromStdString(json)).object();
+}
+
+void Window::recordMessage(std::unique_ptr<rm2027::Message> message) {
+    if (!message) return;
+    const std::string topic = message->name();
+    QJsonObject fields = toFields(*message);
+    {
+        std::lock_guard<std::mutex> lock(recordsMutex_);
+        auto &record = records_[topic];
+        record.message = std::shared_ptr<const rm2027::Message>(std::move(message));
+        record.fields = std::move(fields);
+        record.error.clear();
+        record.receivedAt = QDateTime::currentMSecsSinceEpoch();
+        record.receivedTick = monotonicMs();
+        ++record.count;
+    }
+
+    // 收到即更新：同一轮事件循环内多次消息合并成一次刷新
+    if (!refreshPending_) {
+        refreshPending_ = true;
+        QMetaObject::invokeMethod(this, [this] {
+            refreshPending_ = false;
+            markStale();
+            refreshSummary();
+            updateAlert();
+        }, Qt::QueuedConnection);
+    }
 }
 
 QJsonObject Window::messageFields(const MessageRecord &record) {
-    if (!record.message) return {};
-    std::string json;
-    const auto status = google::protobuf::util::MessageToJsonString(*record.message, &json);
-    if (!status.ok()) return {};
-    return QJsonDocument::fromJson(QByteArray::fromStdString(json)).object();
+    return record.fields;
 }
 
 QJsonObject Window::messageFields(const std::string &topic) {

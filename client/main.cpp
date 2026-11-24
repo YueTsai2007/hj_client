@@ -1,6 +1,7 @@
 #include "window.h"
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QTimer>
 
 int main(int argc, char **argv) {
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
@@ -24,5 +25,24 @@ int main(int argc, char **argv) {
     }
     Window window(parser.value("host"), static_cast<quint16>(port), parser.value("id"), static_cast<quint16>(videoPort));
     window.show();
+    // 默认窗口模式；F11 切换全屏、Esc 退出全屏（截图模式跳过，避免离屏平台改尺寸）
+    if (qEnvironmentVariableIntValue("HJ_FULLSCREEN") == 1 && qEnvironmentVariableIsEmpty("HJ_SNAPSHOT"))
+        window.showFullScreen();
+    if (qEnvironmentVariableIntValue("HJ_MAXIMIZE") == 1) window.showMaximized();
+    // 验收辅助：HJ_SNAPSHOT=<png 路径> 时，3 秒后截图并退出（不影响正常使用）。
+    const QString snapshot = qEnvironmentVariable("HJ_SNAPSHOT");
+    if (!snapshot.isEmpty()) {
+        QTimer::singleShot(2500, &app, [&window, &app, snapshot] {
+            if (window.isFullScreen() || window.isMaximized()) window.showNormal();
+            const int w = qEnvironmentVariableIntValue("HJ_WIN_W");
+            const int h = qEnvironmentVariableIntValue("HJ_WIN_H");
+            if (w > 0 && h > 0) window.resize(w, h);
+            QTimer::singleShot(500, &app, [&window, &app, snapshot] {
+                qWarning("[snapshot] window size %dx%d", window.width(), window.height());
+                window.grab().save(snapshot);
+                QCoreApplication::quit();
+            });
+        });
+    }
     return app.exec();
 }
