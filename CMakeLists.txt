@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
-
 project(HJ_Client LANGUAGES CXX)
-
 set(CMAKE_CXX_STANDARD 17)
-
-add_subdirectory(
-    ./RM2027-CustomTerminal-CommunicationBackend
-    rm2027_backend
-)
-
-add_executable(HJ_Client main.cpp)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTORCC ON)
+find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets)
+add_subdirectory(RM2027-CustomTerminal-CommunicationBackend rm2027_backend)
+if(NOT TARGET rm2027_api_client)
+    message(FATAL_ERROR "Backend client unavailable: install Paho MQTT C++ development libraries")
+endif()
+add_executable(HJ_Client client/main.cpp client/window.cpp client/window_network.cpp client/window_status.cpp client/window_details.cpp client/video_view.cpp client/map.cpp client/brand.cpp client/combat_view.cpp client/floating_panel.cpp client/resources.qrc)
+target_link_libraries(HJ_Client PRIVATE Qt5::Widgets rm2027_api_client rm2027_video)

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>HUD 操作层示意（兑换 / 画板 / 准星）</title>
+<style>
+  :root{--brand:#e8a33d;--brand2:#ffc971;--red:#ff5a67;--blue:#3ea8ff;
+    --txt:#eaf1f7;--muted:#8da0b3;--line:rgba(148,176,205,.18);
+    --panel:rgba(9,14,21,.88);}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:#05080d;color:var(--txt);
+    font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif}
+  .stage{position:relative;width:1920px;height:1080px;overflow:hidden;
+    background:radial-gradient(1000px 600px at 50% 45%,#15222c,#070c12 70%)}
+  .video{position:absolute;inset:0;
+    background:repeating-linear-gradient(0deg,rgba(255,255,255,.012) 0 2px,transparent 2px 4px),
+      radial-gradient(800px 500px at 55% 50%,#1b2a35,#070c12 75%)}
+  .ph{position:absolute;left:50%;top:58%;transform:translate(-50%,-50%);
+    color:#40546a;font-size:16px;letter-spacing:.2em}
+  /* 左右名单 */
+  .side{position:absolute;top:96px;width:268px;display:flex;flex-direction:column;gap:10px}
+  .side.l{left:24px} .side.r{right:24px}
+  .card{position:relative;color:#eef4fa;background:rgba(13,20,29,.9);border:1px solid rgba(148,176,205,.28);border-radius:8px;
+    padding:8px 10px;display:flex;align-items:center;gap:8px;overflow:hidden}
+  .id{width:22px;height:22px;border-radius:4px;display:grid;place-items:center;
+    font-size:12px;font-weight:800;background:rgba(255,255,255,.1)}
+  .side.l .id{color:var(--red)} .side.r .id{color:var(--blue)}
+  .nm{font-size:14px;font-weight:600;color:#f2f7fc !important}
+  .ammo{margin-left:auto;font-size:12px;color:#c7d2de}
+  .hpbg{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.08);border-radius:0 0 8px 8px}
+  .hp{height:100%;border-radius:0 0 8px 8px}
+  .side.l .hp{background:linear-gradient(90deg,#8f1f2a,#ff7e8b)}
+  .side.r .hp{background:linear-gradient(90deg,#1b5f9e,#7cc8ff)}
+  /* 顶部中间 */
+  .top{position:absolute;left:50%;top:26px;transform:translateX(-50%);text-align:center}
+  .round{font-size:12px;color:var(--muted);letter-spacing:.2em}
+  .clock{font-size:52px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.05;
+    text-shadow:0 0 22px rgba(232,163,61,.3)}
+  .score{margin-top:2px;font-size:20px;font-weight:800;letter-spacing:.2em}
+  .score .r{color:var(--red)} .score .b{color:var(--blue)} .score .c{color:var(--muted);margin:0 10px}
+  /* 准星 */
+  .cross{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:170px;height:170px}
+  .ring{position:absolute;inset:0;border-radius:50%;
+    background:conic-gradient(from -90deg, #ffc46a 0% 32%, rgba(255,255,255,.10) 32% 100%);
+    -webkit-mask:radial-gradient(circle, transparent 56%, #000 57%);
+            mask:radial-gradient(circle, transparent 56%, #000 57%)}
+  .line{position:absolute;background:rgba(255,255,255,.85)}
+  .line.h{left:50%;top:50%;width:34px;height:2px;transform:translate(-17px,-1px)}
+  .line.v{left:50%;top:50%;width:2px;height:34px;transform:translate(-1px,-17px)}
+  .dot{position:absolute;left:50%;top:50%;width:5px;height:5px;border-radius:50%;
+    background:var(--brand2);transform:translate(-2.5px,-2.5px)}
+  .cd{position:absolute;left:calc(50% + 105px);top:50%;transform:translateY(-50%);
+    display:flex;flex-direction:column;gap:6px;font-size:12px}
+  .cd .k{color:var(--muted);letter-spacing:.08em}
+  .cd .v{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+  /* 左下 */
+  .bl{position:absolute;left:24px;bottom:28px;display:flex;align-items:center;gap:14px}
+  .lv{width:66px;height:66px;border-radius:50%;
+    background:conic-gradient(#ffeb3b 0% 62%, rgba(255,255,255,.12) 62% 100%);
+    display:grid;place-items:center}
+  .lv i{width:52px;height:52px;border-radius:50%;background:#0b1219;display:grid;place-items:center;
+    font-style:normal;font-size:14px;font-weight:800;color:var(--brand2)}
+  .bars{width:300px;display:flex;flex-direction:column;gap:6px}
+  .bar{height:16px;border-radius:4px;background:rgba(255,255,255,.08);position:relative;overflow:hidden}
+  .bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+  .bar span{position:absolute;inset:0;display:grid;place-items:center;font-size:11px;font-weight:700;
+    text-shadow:0 1px 2px rgba(0,0,0,.8);font-variant-numeric:tabular-nums}
+  .bar.small{height:8px}
+  /* 右下小地图 */
+  .mm{position:absolute;right:24px;bottom:28px;width:300px;height:190px;border-radius:10px;
+    border:1px solid rgba(232,163,61,.3);background:linear-gradient(180deg,#0d1a22,#0a141b);overflow:hidden}
+  .grid{position:absolute;inset:0;background-image:
+      linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),
+      linear-gradient(0deg,rgba(255,255,255,.05) 1px,transparent 1px);background-size:24px 24px}
+  .mk{position:absolute;width:14px;height:14px;border-radius:50%;transform:translate(-50%,-50%);
+    font-size:8px;font-weight:700;display:grid;place-items:center;color:#fff;border:1px solid rgba(255,255,255,.8)}
+  .mk.r{background:rgba(255,90,103,.9)} .mk.b{background:rgba(62,168,255,.9)}
+  /* 画板 */
+  .drawLayer{position:absolute;inset:0;pointer-events:none}
+  .toolbar{position:absolute;left:320px;top:96px;display:flex;align-items:center;gap:8px;
+    background:rgba(9,14,21,.85);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px}
+  .toolbar b{color:var(--brand2);font-weight:600;letter-spacing:.1em;margin-right:4px}
+  .tool{padding:3px 10px;border-radius:5px;border:1px solid var(--line);color:var(--muted)}
+  .tool.on{background:rgba(232,163,61,.18);border-color:rgba(232,163,61,.6);color:var(--brand2)}
+  /* 兑换面板 */
+  .mask{display:none}
+  .ammo{position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);width:520px;
+    background:var(--panel);border:1px solid rgba(232,163,61,.35);border-radius:14px;
+    box-shadow:0 24px 80px rgba(0,0,0,.6);padding:22px 24px}
+  .ammo h3{font-size:17px;letter-spacing:.12em;color:var(--brand2);font-weight:700;margin-bottom:4px}
+  .ammo .sub{font-size:12px;color:var(--muted);margin-bottom:16px}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;
+    border-bottom:1px dashed rgba(148,176,205,.14)}
+  .row .k{font-size:13px;color:var(--muted)}
+  .row .v{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+  .qty{display:flex;align-items:center;gap:10px}
+  .qty button{width:28px;height:28px;border-radius:6px;border:1px solid var(--line);
+    background:#131c26;color:var(--txt);font-size:16px;line-height:1}
+  .qty b{width:76px;text-align:center;font-size:22px;font-variant-numeric:tabular-nums}
+  .tips{font-size:12px;color:#ffc46a;margin:12px 0 16px}
+  .actions{display:flex;gap:10px;justify-content:flex-end}
+  .btn{padding:9px 20px;border-radius:8px;font-size:14px;border:1px solid var(--line);background:#131c26;color:var(--txt)}
+  .btn.primary{background:rgba(232,163,61,.9);border-color:rgba(232,163,61,.9);color:#1a1206;font-weight:700}
+  .btn.reserve{background:rgba(255,196,106,.14);border-color:rgba(255,196,106,.5);color:#ffc46a}
+  .keyhint{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);
+    font-size:11px;color:rgba(141,160,179,.6);letter-spacing:.14em}
+  .ver{position:absolute;left:26px;top:14px;font-size:10px;color:rgba(141,160,179,.45);letter-spacing:.18em}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="video"></div>
+  <div class="ph">1080P60 · H.265 图传（示意）</div>
+
+  <!-- 左右名单（2027：重装/步兵/步兵/哨兵） -->
+  <div class="side l">
+    <div class="card"><span class="id">1</span><span class="nm">重装</span><span class="ammo">32</span><div class="hpbg"><div class="hp" style="width:76%"></div></div></div>
+    <div class="card"><span class="id">3</span><span class="nm">步兵</span><span class="ammo">97</span><div class="hpbg"><div class="hp" style="width:53%"></div></div></div>
+    <div class="card"><span class="id">4</span><span class="nm">步兵</span><span class="ammo">12</span><div class="hpbg"><div class="hp" style="width:80%"></div></div></div>
+    <div class="card"><span class="id">7</span><span class="nm">哨兵</span><span class="ammo">—</span><div class="hpbg"><div class="hp" style="width:88%"></div></div></div>
+  </div>
+  <div class="side r">
+    <div class="card"><span class="id">1</span><span class="nm">重装</span><span class="ammo"></span><div class="hpbg"><div class="hp" style="width:90%"></div></div></div>
+    <div class="card"><span class="id">3</span><span class="nm">步兵</span><span class="ammo"></span><div class="hpbg"><div class="hp" style="width:77%"></div></div></div>
+    <div class="card"><span class="id">4</span><span class="nm">步兵</span><span class="ammo"></span><div class="hpbg"><div class="hp" style="width:50%"></div></div></div>
+    <div class="card"><span class="id">7</span><span class="nm">哨兵</span><span class="ammo"></span><div class="hpbg"><div class="hp" style="width:82%"></div></div></div>
+  </div>
+
+  <!-- 顶部 -->
+  <div class="top">
+    <div class="round">ROUND 1 / 3 · 比赛中</div>
+    <div class="clock">04:12</div>
+    <div class="score"><span class="r">2</span><span class="c">:</span><span class="b">1</span></div>
+  </div>
+
+  <!-- 准星 + 热量环 + 实时数据 -->
+  <div class="cross">
+    <div class="ring"></div>
+    <div class="line h"></div><div class="line v"></div><div class="dot"></div>
+  </div>
+  <div class="cd" style="left:calc(50% + 110px)">
+    <div><div class="k">当前初速度</div><div class="v">15.0</div></div>
+    <div><div class="k">允许发弹量</div><div class="v" style="color:#ffc46a">97</div></div>
+  </div>
+
+  <!-- 战术画板（N 键） -->
+  <svg class="drawLayer" width="1920" height="1080">
+    <circle cx="980" cy="620" r="46" fill="none" stroke="#ff5a67" stroke-width="3" stroke-dasharray="7 5"/>
+    <path d="M 1030 600 L 1120 560" stroke="#ff5a67" stroke-width="3" fill="none"/>
+    <path d="M 1120 560 l -14 4 l 6 12 z" fill="#ff5a67"/>
+    <text x="1044" y="548" fill="#ff5a67" font-size="16" font-weight="700">绕后</text>
+  </svg>
+  <div class="toolbar">
+    <b>画板</b>
+    <span class="tool on">自由</span><span class="tool">直线</span><span class="tool">圆</span><span class="tool">三角</span>
+    <span style="width:14px"></span>
+    <span class="tool">撤销</span><span class="tool">清空</span>
+  </div>
+
+  <!-- 左下 -->
+  <div class="bl">
+    <div class="lv"><i>Lv.5</i></div>
+    <div class="bars">
+      <div class="bar"><i style="width:96%;background:linear-gradient(90deg,#8f1f2a,#ff7e8b)"></i><span>480 / 500</span></div>
+      <div class="bar small"><i style="width:62%;background:#3fbf9a"></i></div>
+    </div>
+  </div>
+
+  <!-- 右下小地图 -->
+  <div class="mm">
+    <div class="grid"></div>
+    <span class="mk r" style="left:26%;top:38%">1</span>
+    <span class="mk r" style="left:38%;top:62%">3</span>
+    <span class="mk r" style="left:44%;top:30%">4</span>
+    <span class="mk r" style="left:20%;top:74%">7</span>
+    <span class="mk b" style="left:72%;top:36%">1</span>
+    <span class="mk b" style="left:64%;top:58%">3</span>
+    <span class="mk b" style="left:58%;top:70%">4</span>
+    <span class="mk b" style="left:78%;top:76%">7</span>
+  </div>
+
+  <!-- 兑换面板（O 键） -->
+  <div class="mask"></div>
+  <div class="ammo">
+    <h3>17mm 弹丸补给</h3>
+    <div class="sub">O 键开关 · 增益点兑换便宜，远程兑换更贵</div>
+    <div class="row"><span class="k">已有 / 可兑换允许发弹量</span><span class="v">97 / 320</span></div>
+    <div class="row"><span class="k">兑换数量（10 的倍数）</span>
+      <span class="qty"><button>−</button><b>100</b><button>+</button></span></div>
+    <div class="row"><span class="k">单价</span><span class="v" style="font-size:15px">1.5 金币/发（远程）</span></div>
+    <div class="row"><span class="k">合计 / 当前金币</span><span class="v" style="color:#ffc46a">150 / 480</span></div>
+    <div class="tips">金币不足时会转为「预约兑换」，条件满足自动发送</div>
+    <div class="actions">
+      <button class="btn">取消</button>
+      <button class="btn reserve">预约兑换</button>
+      <button class="btn primary">确定兑换</button>
+    </div>
+  </div>
+
+  <div class="keyhint">O 兑换面板　P 设置　N 战术画板　ESC 释放鼠标</div>
+  <div class="ver">HUD 操作层示意 · 兑换 / 画板 / 准星</div>
+</div>
+</body>
+</html>

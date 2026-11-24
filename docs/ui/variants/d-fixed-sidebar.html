@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>数据视图 · 固定信息列 v1</title>
+<style>
+  :root{
+    --brand:#e8a33d; --brand2:#ffc971;
+    --red:#ff5a67; --blue:#3ea8ff;
+    --txt:#eaf1f7; --muted:#8da0b3;
+    --line:rgba(148,176,205,.18);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1366px;height:768px;overflow:hidden;background:#05080d;color:var(--txt);
+    font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif}
+  .stage{width:1366px;height:768px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;
+    background:radial-gradient(900px 520px at 42% 34%,#0d1720,#05080d 72%)}
+  .card{background:rgba(10,16,24,.78);border:1px solid var(--line);border-radius:10px}
+  .cap{font-size:10px;letter-spacing:.14em;color:var(--muted)}
+
+  /* 顶部：基地血量 + 计时 */
+  .header{height:86px;display:flex;align-items:stretch;gap:14px}
+  .base{flex:0 0 300px;display:flex;flex-direction:column;justify-content:center;gap:5px;padding:10px 16px}
+  .base .top{display:flex;align-items:baseline;justify-content:space-between}
+  .base .hp{font-size:30px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+  .base .hp small{font-size:12px;color:var(--muted);font-weight:600}
+  .base.l .hp{color:var(--red)} .base.r .hp{color:var(--blue)}
+  .base.r .top{flex-direction:row-reverse}
+  .base .bar{height:6px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden}
+  .base .bar>i{display:block;height:100%}
+  .clock{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+  .clock .t{font-size:40px;font-weight:800;letter-spacing:.04em;font-variant-numeric:tabular-nums;
+    text-shadow:0 0 22px rgba(232,163,61,.3)}
+  .clock .p{font-size:10px;letter-spacing:.3em;color:var(--brand2)}
+  .clock .sc{font-size:10px;color:var(--muted);letter-spacing:.1em;margin-top:1px}
+
+  /* 主区：左主视图 + 右固定信息列 */
+  .main{flex:1;min-height:0;display:flex;gap:8px}
+  .view{flex:1;position:relative;overflow:hidden;padding:10px 12px;display:flex;flex-direction:column}
+  .view .vt{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);letter-spacing:.08em}
+  .field{position:relative;flex:1;border-radius:8px;overflow:hidden;margin-top:8px;
+    background:linear-gradient(180deg,#0d1a22,#0a141b);border:1px solid rgba(232,163,61,.16)}
+  .grid{position:absolute;inset:0;
+    background-image:linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),
+      linear-gradient(0deg,rgba(255,255,255,.05) 1px,transparent 1px);
+    background-size:34px 34px}
+  .centerline{position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(232,163,61,.25)}
+  .mk{position:absolute;width:20px;height:20px;aspect-ratio:1/1;border-radius:50%;transform:translate(-50%,-50%);
+    font-size:9px;font-weight:700;line-height:18px;text-align:center;color:#fff;
+    border:1px solid rgba(255,255,255,.7)}
+  .mk.r{background:rgba(255,90,103,.85)} .mk.b{background:rgba(62,168,255,.85)}
+  .mk.me{box-shadow:0 0 0 5px rgba(255,90,103,.22)}
+  .legend{display:flex;gap:14px;font-size:9px;color:var(--muted);margin-top:8px}
+  .legend i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:1px}
+
+  /* 右固定信息列 */
+  .side{flex:0 0 360px;display:flex;flex-direction:column;gap:8px}
+  .mod{background:rgba(10,16,24,.78);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .mod>.h{height:26px;display:flex;align-items:center;gap:8px;padding:0 10px;
+    border-bottom:1px solid var(--line);background:rgba(39,50,64,.5)}
+  .mod>.h .t{font-size:11px;font-weight:700;letter-spacing:.08em}
+  .mod>.h .fix{font-size:8px;color:rgba(232,163,61,.85);border:1px solid rgba(232,163,61,.35);
+    border-radius:3px;padding:1px 4px;margin-left:auto;letter-spacing:.05em}
+  .robot{height:44px;display:flex;align-items:center;gap:8px;padding:0 10px}
+  .robot .id{width:62px;font-size:11px;font-weight:700}
+  .robot .id small{font-weight:400;color:var(--muted);margin-left:3px}
+  .robot .bar{flex:0 0 110px;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden}
+  .robot .bar>i{display:block;height:100%}
+  .robot .num{flex:1;text-align:right;font-size:11px;font-variant-numeric:tabular-nums;color:#c4d0dd}
+  .robot .num small{color:var(--muted);font-size:9px}
+  .up{color:#ffc46a !important}
+
+  .events{flex:0 0 120px;display:flex;flex-direction:column}
+  .ev{height:28px;display:flex;align-items:center;gap:10px;padding:0 10px;font-size:10px;
+    color:var(--muted);border-bottom:1px dashed rgba(148,176,205,.08);white-space:nowrap;overflow:hidden}
+  .ev .time{color:#6d7885;font-variant-numeric:tabular-nums;flex:0 0 54px}
+  .ev .warn{color:#ffc46a}
+  .ev.more{color:rgba(141,160,179,.55);border-bottom:0}
+
+  /* 底部本机条 */
+  .self{height:52px;display:flex;align-items:center;gap:24px;padding:0 14px}
+  .self .id{font-size:16px;font-weight:800;color:var(--brand2);letter-spacing:.04em}
+  .self .k{font-size:9px;color:var(--muted);letter-spacing:.1em}
+  .self .v{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
+  .self .v small{color:var(--muted);font-size:10px;font-weight:400}
+  .self .anno{margin-left:auto;text-align:right;font-size:9.5px;line-height:1.6;
+    color:rgba(141,160,179,.75);letter-spacing:.03em}
+  .self .anno b{color:rgba(232,163,61,.9);font-weight:600}
+
+  .tail{margin-top:auto;padding-top:12px;display:flex;flex-direction:column;gap:6px}
+  .tail .dash{height:1px;background:repeating-linear-gradient(90deg,rgba(232,163,61,.38) 0 6px,transparent 6px 12px)}
+  .tail span{font-size:9px;line-height:1.55;color:rgba(141,160,179,.55);letter-spacing:.03em}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- 顶部 -->
+  <div class="header">
+    <div class="base l card">
+      <div class="top"><span class="cap">己方基地</span><span class="hp">5000<small> HP</small></span></div>
+      <div class="bar"><i style="width:100%;background:linear-gradient(90deg,#8f1f2a,#ff7e8b)"></i></div>
+    </div>
+    <div class="clock">
+      <div class="t">06:27</div>
+      <div class="p">比 赛 中</div>
+      <div class="sc">红 2 : 1 蓝</div>
+    </div>
+    <div class="base r card">
+      <div class="top"><span class="cap">敌方基地</span><span class="hp">4710<small> HP</small></span></div>
+      <div class="bar"><i style="width:94%;background:linear-gradient(90deg,#3ea8ff,#8fd0ff)"></i></div>
+    </div>
+  </div>
+
+  <!-- 主区 -->
+  <div class="main">
+    <div class="view card">
+      <div class="vt"><span>战场地图 · 示意图</span><span>红方视角 · 雷达 14s 前</span></div>
+      <div class="field">
+        <div class="grid"></div>
+        <div class="centerline"></div>
+        <span class="mk r me" style="left:26%;top:38%">1</span>
+        <span class="mk r" style="left:38%;top:62%">3</span>
+        <span class="mk r" style="left:44%;top:30%">4</span>
+        <span class="mk r" style="left:20%;top:74%">7</span>
+        <span class="mk b" style="left:72%;top:36%">1</span>
+        <span class="mk b" style="left:64%;top:58%">3</span>
+        <span class="mk b" style="left:58%;top:70%">4</span>
+        <span class="mk b" style="left:78%;top:76%">7</span>
+      </div>
+      <div class="legend"><span><i style="background:var(--red)"></i>红方</span><span><i style="background:var(--blue)"></i>蓝方</span><span style="margin-left:auto">地图 / 图传 F2 互换</span></div>
+    </div>
+
+    <!-- 固定信息列 -->
+    <aside class="side">
+      <div class="mod">
+        <div class="h"><span class="t">我方机器人</span><span class="fix">固定 360</span></div>
+        <div class="robot"><span class="id">1<small> 重装</small></span><div class="bar"><i style="width:75%;background:#ff5a67"></i></div><span class="num">150 <small>/ 200</small></span></div>
+        <div class="robot"><span class="id">3<small> 步兵</small></span><div class="bar"><i style="width:53%;background:#ff5a67"></i></div><span class="num">80 <small>/ 150</small></span></div>
+        <div class="robot"><span class="id">4<small> 步兵</small></span><div class="bar"><i style="width:80%;background:#ff5a67"></i></div><span class="num">120 <small>/ 150</small></span></div>
+        <div class="robot"><span class="id">7<small> 哨兵</small></span><div class="bar"><i style="width:88%;background:#ff5a67"></i></div><span class="num">350 <small>/ 400</small></span></div>
+      </div>
+
+      <div class="mod">
+        <div class="h"><span class="t">对方机器人</span><span class="fix">固定 360</span></div>
+        <div class="robot"><span class="id">1<small> 重装</small></span><div class="bar"><i style="width:90%;background:#3ea8ff"></i></div><span class="num">180 <small>/ 200</small></span></div>
+        <div class="robot"><span class="id">3<small> 步兵</small></span><div class="bar"><i style="width:77%;background:#3ea8ff"></i></div><span class="num">115 <small>/ 150</small></span></div>
+        <div class="robot"><span class="id">4<small> 步兵</small></span><div class="bar"><i style="width:50%;background:#3ea8ff"></i></div><span class="num">75 <small>/ 150</small></span></div>
+        <div class="robot"><span class="id">7<small> 哨兵</small></span><div class="bar"><i style="width:82%;background:#3ea8ff"></i></div><span class="num">330 <small>/ 400</small></span></div>
+      </div>
+
+      <div class="mod events">
+        <div class="h"><span class="t">战场事件</span><span class="fix">固定 120 · 滚动</span></div>
+        <div class="ev"><span class="time">21:39:16</span><span class="warn">判罚 1 · 5 秒 · 累计 1 次</span></div>
+        <div class="ev"><span class="time">21:39:03</span><span>事件 1 · 模拟赛况事件</span></div>
+        <div class="ev"><span class="time">21:38:55</span><span>雷达数据恢复</span></div>
+        <div class="ev more"><span class="time">21:38:40</span><span>更早事件在列表内滚动</span></div>
+      </div>
+
+      <div class="tail">
+        <div class="dash"></div>
+        <span>固定列到此结束 · 下方不分配空间<br>窗口变高或变宽时，余量全部给左侧主视图</span>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 底部本机 -->
+  <div class="self card">
+    <span class="id">01</span>
+    <div><div class="k">血量</div><div class="v">480<small> / 500</small></div></div>
+    <div><div class="k">弹量</div><div class="v">97</div></div>
+    <div><div class="k">热量</div><div class="v">6<small> / 120</small></div></div>
+    <div><div class="k">复活</div><div class="v" style="color:var(--muted)">无需</div></div>
+    <div class="anno">
+      固定信息列：右栏 <b>360</b> 不可拖拽 · 三块高度按内容固定 · 列表内部滚动<br>
+      窗口变宽只扩左侧主视图 · 血条固定 <b>110</b>，精确值看数字
+    </div>
+  </div>
+</div>
+</body>
+</html>
