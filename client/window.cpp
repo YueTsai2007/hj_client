@@ -832,6 +832,93 @@ void Window::buildCombatView() {
     mapCardLayout->addLayout(mapHead);
     mapCardLayout->addWidget(mapHud_, 1);
 
+    // 7.5 左侧栏扩展：战局态势对比卡 + 本机遥测卡（填补左列空间、高密度战术信息）
+    {
+        hudEconPanel_ = makeCard(ui_theme::kGold, false, 126);
+        auto *el = new QVBoxLayout(hudEconPanel_);
+        el->setContentsMargins(12, 8, 12, 8);
+        el->setSpacing(5);
+        auto *title = hudLabel(QStringLiteral("TACTICAL DIFF // 战局态势"), 10, ui_theme::kGoldLight, hudEconPanel_, true);
+        hudFonts_.append({title, 10});
+        el->addWidget(title);
+
+        auto addDuelBar = [&](const QString &name, TacticalBar *&bar) {
+            auto *lbl = hudLabel(name, 10, muted, hudEconPanel_);
+            hudFonts_.append({lbl, 10});
+            bar = new TacticalBar(hudEconPanel_);
+            bar->setAccent(allyAccent);
+            bar->setFixedHeight(5);
+            el->addWidget(lbl);
+            el->addWidget(bar);
+        };
+        addDuelBar(QStringLiteral("控制度占比 (己方 / 敌方)"), hudCpBar_);
+        addDuelBar(QStringLiteral("累计伤害占比"), hudDmgBar_);
+        addDuelBar(QStringLiteral("编队总血量占比"), hudTeamHpBar_);
+
+        hudEconBody_ = hudLabel(QStringLiteral("等待战局统计..."), 11, primary, hudEconPanel_);
+        hudEconBody_->setTextFormat(Qt::RichText);
+        hudEconBody_->setWordWrap(true);
+        hudFonts_.append({hudEconBody_, 11});
+        el->addWidget(hudEconBody_);
+    }
+    {
+        hudTelemetryPanel_ = makeCard(ui_theme::kCyan, false, 122);
+        auto *tl = new QVBoxLayout(hudTelemetryPanel_);
+        tl->setContentsMargins(12, 8, 12, 8);
+        tl->setSpacing(5);
+        auto *title = hudLabel(QStringLiteral("TELEMETRY // 本机定位与后勤"), 10, ui_theme::kCyan, hudTelemetryPanel_, true);
+        hudFonts_.append({title, 10});
+        hudTelemetryBody_ = hudLabel(QStringLiteral("等待定位与后勤数据..."), 11, primary, hudTelemetryPanel_);
+        hudTelemetryBody_->setTextFormat(Qt::RichText);
+        hudTelemetryBody_->setWordWrap(true);
+        hudFonts_.append({hudTelemetryBody_, 11});
+        tl->addWidget(title);
+        tl->addWidget(hudTelemetryBody_, 1);
+    }
+
+    // 7.6 右侧栏扩展：战场机制与机关卡 + 快捷控制微舱（平衡右列视觉与实战操作）
+    {
+        hudMechPanel_ = makeCard(ui_theme::kGold, false, 126);
+        auto *ml = new QVBoxLayout(hudMechPanel_);
+        ml->setContentsMargins(12, 8, 12, 8);
+        ml->setSpacing(5);
+        auto *title = hudLabel(QStringLiteral("MECHANISMS // 战场机制与机关"), 10, ui_theme::kGoldLight, hudMechPanel_, true);
+        hudFonts_.append({title, 10});
+        hudMechBody_ = hudLabel(QStringLiteral("当前无激活特殊机制"), 11, primary, hudMechPanel_);
+        hudMechBody_->setTextFormat(Qt::RichText);
+        hudMechBody_->setWordWrap(true);
+        hudFonts_.append({hudMechBody_, 11});
+        ml->addWidget(title);
+        ml->addWidget(hudMechBody_, 1);
+    }
+    {
+        hudShortcutPanel_ = makeCard(ui_theme::kCyan, false, 116);
+        auto *sl = new QVBoxLayout(hudShortcutPanel_);
+        sl->setContentsMargins(12, 8, 12, 8);
+        sl->setSpacing(5);
+        auto *title = hudLabel(QStringLiteral("CONTROLS // 战术快捷指令"), 10, ui_theme::kCyan, hudShortcutPanel_, true);
+        hudFonts_.append({title, 10});
+        sl->addWidget(title);
+        auto *grid = new QGridLayout;
+        grid->setHorizontalSpacing(8);
+        grid->setVerticalSpacing(4);
+        const QList<QPair<QString, QString>> keys = {
+            {"F2", "图传 / 地图"}, {"F3", "数据视图"},
+            {"F4", "动态准星"},    {"F5", "画面适配"},
+            {"O",  "兑换 / 买活"}, {"M",  "地图缩放"},
+            {"H",  "专注模式"},    {"F11", "全屏切换"}
+        };
+        for (int i = 0; i < keys.size(); ++i) {
+            auto *cell = hudLabel(QStringLiteral("<b style='color:#ffc971'>%1</b>　<span style='color:#a2b6ca'>%2</span>")
+                                      .arg(keys[i].first, keys[i].second), 10, primary, hudShortcutPanel_);
+            cell->setTextFormat(Qt::RichText);
+            hudFonts_.append({cell, 10});
+            grid->addWidget(cell, i / 2, i % 2);
+        }
+        sl->addLayout(grid);
+        sl->addStretch();
+    }
+
     // 8. 中心动态战术准星
     crosshair_ = new Crosshair(hud);
     crosshair_->setVisible(crosshairAction_ ? crosshairAction_->isChecked() : true);
@@ -891,6 +978,31 @@ void Window::layoutCombatHud(const QRectF &content) {
     if (hudEnemySquad_) {
         hudEnemySquad_->setVisible(!focusMode_);
         hudEnemySquad_->setGeometry(W - margin - squadW, margin + topH + gap, squadW, squadH);
+    }
+
+    // 左右侧栏延伸模块（仅当高度充裕且非专注模式时显示，绝不侵占中心瞄准区）
+    const int sideTopY = margin + topH + gap + squadH + gap;
+    const bool showLeftExtra = !focusMode_ && (H - sideTopY - sc(145) > sc(280));
+    const int econH = sc(196);
+    const int teleH = sc(126);
+    if (hudEconPanel_) {
+        hudEconPanel_->setVisible(showLeftExtra);
+        hudEconPanel_->setGeometry(margin, sideTopY, squadW, econH);
+    }
+    if (hudTelemetryPanel_) {
+        hudTelemetryPanel_->setVisible(showLeftExtra);
+        hudTelemetryPanel_->setGeometry(margin, sideTopY + econH + gap, squadW, teleH);
+    }
+    const bool showRightExtra = !focusMode_ && (H - sideTopY - sc(280) > sc(260));
+    const int mechH = sc(166);
+    const int scH = sc(136);
+    if (hudMechPanel_) {
+        hudMechPanel_->setVisible(showRightExtra);
+        hudMechPanel_->setGeometry(W - margin - squadW, sideTopY, squadW, mechH);
+    }
+    if (hudShortcutPanel_) {
+        hudShortcutPanel_->setVisible(showRightExtra);
+        hudShortcutPanel_->setGeometry(W - margin - squadW, sideTopY + mechH + gap, squadW, scH);
     }
 
     // 左下角：本机液态玻璃双栏仪表盘
@@ -1153,6 +1265,119 @@ void Window::updateCombatHud() {
         const qint64 radarAge = dataAgeMs("RadarInfoToClient");
         const QString rText = radarAge < 0 ? QStringLiteral("雷达 --") : QStringLiteral("雷达 %1s 前").arg(radarAge / 1000);
         hudLegend_->setText(QStringLiteral("存 %1:%2 · %3 · M 缩放").arg(allyAlive).arg(enemyAlive).arg(rText));
+    }
+
+    // 更新左侧战局态势对比卡
+    {
+        const qint64 cpA = unit.value(QStringLiteral("totalCPAlly")).toInt(0);
+        const qint64 cpE = unit.value(QStringLiteral("totalCPEnemy")).toInt(0);
+        const qint64 dmgA = unit.value(QStringLiteral("totalDamageAlly")).toInt(0);
+        const qint64 dmgE = unit.value(QStringLiteral("totalDamageEnemy")).toInt(0);
+        qint64 hpA = 0, hpE = 0;
+        for (size_t i = 0; i < health_.size(); ++i) (i < 4 ? hpA : hpE) += health_[i];
+        if (hudCpBar_) {
+            hudCpBar_->setAccent(allyColor);
+            if (cpA + cpE > 0) hudCpBar_->setRatio(static_cast<qreal>(cpA) / (cpA + cpE));
+            else hudCpBar_->reset();
+        }
+        if (hudDmgBar_) {
+            hudDmgBar_->setAccent(ui_theme::kGoldLight);
+            if (dmgA + dmgE > 0) hudDmgBar_->setRatio(static_cast<qreal>(dmgA) / (dmgA + dmgE));
+            else hudDmgBar_->reset();
+        }
+        if (hudTeamHpBar_) {
+            hudTeamHpBar_->setAccent(ui_theme::kGreen);
+            if (hpA + hpE > 0) hudTeamHpBar_->setRatio(static_cast<qreal>(hpA) / (hpA + hpE));
+            else hudTeamHpBar_->reset();
+        }
+        if (hudEconBody_) {
+            const auto diffStr = [](qint64 d) {
+                const QString c = d >= 0 ? QStringLiteral("#5ce6a0") : QStringLiteral("#ff6b77");
+                return QStringLiteral("<b style='color:%1'>%2%3</b>").arg(c, d >= 0 ? QStringLiteral("+") : QString(), QString::number(d));
+            };
+            const auto gold = number(logistics, "remainingEconomy", QStringLiteral("--"));
+            const auto totalGold = number(logistics, "totalEconomyObtained", QStringLiteral("--"));
+            const auto tech = number(logistics, "techLevel", QStringLiteral("--"));
+            hudEconBody_->setText(QStringLiteral(
+                "<table width='100%' cellspacing='1'>"
+                "<tr><td style='color:#9cb0c5'>控制度差</td><td align='right'>%1 : %2 (%3)</td></tr>"
+                "<tr><td style='color:#9cb0c5'>伤害差</td><td align='right'>%4 : %5 (%6)</td></tr>"
+                "<tr><td style='color:#9cb0c5'>编队总血</td><td align='right'>%7 : %8 (%9)</td></tr>"
+                "<tr><td style='color:#9cb0c5'>经济 / 总计</td><td align='right'><b style='color:#ffc971'>%10</b> / %11 · <b style='color:#3ce8ff'>Lv.%12</b></td></tr>"
+                "</table>")
+                .arg(cpA).arg(cpE).arg(diffStr(cpA - cpE))
+                .arg(dmgA).arg(dmgE).arg(diffStr(dmgA - dmgE))
+                .arg(hpA).arg(hpE).arg(diffStr(hpA - hpE))
+                .arg(gold, totalGold, tech));
+        }
+    }
+
+    // 更新左侧本机定位与后勤遥测卡
+    if (hudTelemetryBody_) {
+        const auto pos = messageFields("RobotPosition");
+        const auto fmtF = [&pos](const char *k) {
+            const auto v = pos.value(QLatin1String(k));
+            return v.isDouble() ? QString::number(v.toDouble(), 'f', 2) : QStringLiteral("--");
+        };
+        const auto enc = number(logistics, "encryptionLevel", QStringLiteral("--"));
+        const auto payGold = number(respawn, "goldCostForRespawn", QStringLiteral("--"));
+        const bool canPay = respawn.value(QStringLiteral("canPayForRespawn")).toBool();
+        hudTelemetryBody_->setText(QStringLiteral(
+            "<table width='100%' cellspacing='2'>"
+            "<tr><td style='color:#9cb0c5'>本机坐标</td><td align='right'><b style='color:#f2f7fc'>X %1 · Y %2</b></td></tr>"
+            "<tr><td style='color:#9cb0c5'>高度 / 朝向</td><td align='right'>Z %3 · <b style='color:#3ce8ff'>%4°</b></td></tr>"
+            "<tr><td style='color:#9cb0c5'>加密等级</td><td align='right'><b style='color:#ffc971'>Lv.%5</b></td></tr>"
+            "<tr><td style='color:#9cb0c5'>买活状态</td><td align='right'><b style='color:#ffc971'>%6 金</b> · %7</td></tr>"
+            "</table>")
+            .arg(fmtF("x"), fmtF("y"), fmtF("z"), fmtF("yaw"), enc, payGold,
+                 canPay ? QStringLiteral("<span style='color:#5ce6a0'>可买活</span>")
+                        : QStringLiteral("<span style='color:#8ea3b8'>暂不可买</span>")));
+    }
+
+    // 更新右侧战场机制与机关卡
+    if (hudMechBody_) {
+        const auto mech = messageFields("GlobalSpecialMechanism");
+        const auto ids = mech.value(QStringLiteral("mechanismId")).toArray();
+        const auto times = mech.value(QStringLiteral("mechanismTimeSec")).toArray();
+        auto nameOf = [](int id) -> QString {
+            switch (id) {
+            case 1: return QStringLiteral("己方堡垒激活");
+            case 2: return QStringLiteral("敌方堡垒激活");
+            case 3: return QStringLiteral("R 前哨阵地");
+            case 4: return QStringLiteral("B 前哨阵地");
+            case 5: return QStringLiteral("R 基地阵地");
+            case 6: return QStringLiteral("B 基地阵地");
+            default: return QString();
+            }
+        };
+        QString html = QStringLiteral("<table width='100%' cellspacing='2'>");
+        int count = 0;
+        for (int i = 0; i < ids.size() && i < times.size(); ++i) {
+            const int id = ids.at(i).toInt();
+            const int sec = times.at(i).toInt();
+            const QString nm = nameOf(id);
+            if (nm.isEmpty()) continue;
+            QString val;
+            if (id >= 3) {
+                const QString col = sec > 0 ? QStringLiteral("#5ce6a0") : sec < 0 ? QStringLiteral("#ff6b77") : QStringLiteral("#9cb0c5");
+                const QString dir = sec > 0 ? QStringLiteral("己方推进") : sec < 0 ? QStringLiteral("对方推进") : QStringLiteral("僵持");
+                val = QStringLiteral("<b style='color:%1'>%2 %3s</b>").arg(col, dir).arg(qAbs(sec));
+            } else {
+                val = QStringLiteral("<b style='color:#ffc971'>%1s</b>").arg(sec);
+            }
+            html += QStringLiteral("<tr><td style='color:#ffc971'>▍ %1</td><td align='right'>%2</td></tr>").arg(nm, val);
+            ++count;
+        }
+        if (count == 0) {
+            html += QStringLiteral("<tr><td colspan='2' style='color:#8ea3b8'>当前无激活特殊机制</td></tr>");
+        }
+        const auto coreState = number(messageFields("TechCoreMotionStateSync"), "basicState", QStringLiteral("--"));
+        const auto runeState = number(messageFields("RuneStatusSync"), "runeStatus", QStringLiteral("--"));
+        html += QStringLiteral(
+            "<tr><td style='color:#9cb0c5'>科技核心状态</td><td align='right'><b style='color:#3ce8ff'>%1</b></td></tr>"
+            "<tr><td style='color:#9cb0c5'>能量机关状态</td><td align='right'><b style='color:#ffc971'>%2</b></td></tr>"
+            "</table>").arg(coreState, runeState);
+        hudMechBody_->setText(html);
     }
 }
 

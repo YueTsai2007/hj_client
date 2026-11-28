@@ -259,7 +259,7 @@ void LargeSkewedHealthBar::paintEvent(QPaintEvent *) {
     const qreal cut = qMin(r.height() * 0.44, 28.0 * scale_);
     const qreal outerCut = qMin(r.height() * 0.22, 12.0 * scale_);
 
-    // 统一的一体化大斜切翼轮廓：外侧微切角，内侧大斜切向中央计时核汇聚
+    // 一体化大斜切翼外框
     QPolygonF poly;
     if (!right_) {
         poly << r.topLeft()
@@ -278,94 +278,33 @@ void LargeSkewedHealthBar::paintEvent(QPaintEvent *) {
     shape.addPolygon(poly);
     shape.closeSubpath();
 
-    // 1. 整体液态玻璃折射底盘（悍匠徽章区与血条区共享同一块玻璃，彻底消除割裂）
+    // 1. 整体液态玻璃折射底盘
     const QImage backdrop = backdropSource_ ? backdropSource_->blurredBackdrop() : QImage();
     const QSizeF vpSize = backdropSource_ ? QSizeF(backdropSource_->size()) : QSizeF();
-    ui_theme::drawLiquidGlass(p, shape, r, backdrop, vpSize, QPointF(pos()), accent_, 132);
+    ui_theme::drawLiquidGlass(p, shape, r, backdrop, vpSize, QPointF(pos()), accent_, 144);
 
-    // 2. 划分「内嵌徽标翼区」与「斜切血条区」
-    const qreal capW = hanjiangEmblem_ ? qMin(r.width() * 0.30, 198.0 * scale_)
-                     : (!badgeTop_.isEmpty() ? qMin(r.width() * 0.24, 166.0 * scale_) : 0.0);
+    // 2. 划分「内嵌徽标翼区」与「精密血条主区」
+    const qreal capW = hanjiangEmblem_ ? qMin(r.width() * 0.29, 194.0 * scale_)
+                     : (!badgeTop_.isEmpty() ? qMin(r.width() * 0.23, 162.0 * scale_) : 0.0);
     const qreal slant = 14.0 * scale_;
     const QRectF barZone = !right_
         ? QRectF(r.left() + capW, r.top(), r.width() - capW, r.height())
         : QRectF(r.left(), r.top(), r.width() - capW, r.height());
 
-    // 构造血条区域独立斜切裁剪路径（内侧与徽标区以斜闪电线衔接！）
-    QPainterPath barClip;
-    if (!right_) {
-        QPolygonF bp;
-        bp << QPointF(barZone.left() + slant, r.top())
-           << QPointF(r.right() - cut, r.top())
-           << r.bottomRight()
-           << QPointF(barZone.left() - slant * 0.35, r.bottom());
-        barClip.addPolygon(bp);
-    } else {
-        QPolygonF bp;
-        bp << QPointF(r.left() + cut, r.top())
-           << QPointF(barZone.right() - slant, r.top())
-           << QPointF(barZone.right() + slant * 0.35, r.bottom())
-           << r.bottomLeft();
-        barClip.addPolygon(bp);
-    }
-    barClip.closeSubpath();
-    barClip = barClip.intersected(shape);
-
-    // 3. 血条区填充 + 掉血残影 + 1000 HP 战术刻度线
-    p.save();
-    p.setClipPath(barClip);
-    if (valid_) {
-        const auto barRect = [&](qreal frac) {
-            const qreal fw = barZone.width() * qBound(0.0, frac, 1.0);
-            return right_ ? QRectF(barZone.right() - fw, r.top(), fw, r.height())
-                          : QRectF(barZone.left() - slant * 0.35, r.top(), fw + slant * 0.35, r.height());
-        };
-        if (trail_ > current_ + 0.004) {
-            p.fillRect(barRect(trail_), QColor(255, 224, 163, 175));
-        }
-        if (current_ > 0.002) {
-            const QRectF fill = barRect(current_);
-            QLinearGradient grad(right_ ? fill.right() : fill.left(), r.top(),
-                                 right_ ? fill.left() : fill.right(), r.bottom());
-            QColor cStart = accent_.darker(135); cStart.setAlpha(205);
-            QColor cMid = accent_; cMid.setAlpha(218);
-            QColor cTip = accent_.lighter(132); cTip.setAlpha(238);
-            grad.setColorAt(0.0, cStart);
-            grad.setColorAt(0.78, cMid);
-            grad.setColorAt(1.0, cTip);
-            p.fillRect(fill, grad);
-
-            QLinearGradient fillSheen(fill.topLeft(), QPointF(fill.left(), fill.top() + fill.height() * 0.45));
-            fillSheen.setColorAt(0.0, QColor(255, 255, 255, 62));
-            fillSheen.setColorAt(1.0, QColor(255, 255, 255, 0));
-            p.fillRect(QRectF(fill.left(), fill.top(), fill.width(), fill.height() * 0.45), fillSheen);
-        }
-    }
-    // 5 段 1000-HP 刻度线
-    p.setPen(QPen(QColor(255, 255, 255, 36), 1.0));
-    for (int i = 1; i < 5; ++i) {
-        const qreal x = barZone.left() + barZone.width() * i / 5.0;
-        const qreal sl = right_ ? -cut * 0.42 : cut * 0.42;
-        p.drawLine(QPointF(x - sl * 0.5, r.top() + 4), QPointF(x + sl * 0.5, r.bottom() - 4));
-    }
-    p.restore();
-
-    // 4. 左侧内嵌悍匠旋转齿轮徽标翼（与血条无缝斜线融合）
+    // 3. 左侧内嵌悍匠旋转齿轮徽标翼
     if (hanjiangEmblem_ && !right_) {
         p.save();
         p.setClipPath(shape);
-        // 悍匠锻造金柔光从最左端向血条自然过渡
         QLinearGradient goldGlow(r.left(), 0, r.left() + capW + slant, 0);
-        goldGlow.setColorAt(0.0, QColor(232, 163, 61, 78));
-        goldGlow.setColorAt(0.75, QColor(232, 163, 61, 24));
+        goldGlow.setColorAt(0.0, QColor(232, 163, 61, 82));
+        goldGlow.setColorAt(0.75, QColor(232, 163, 61, 22));
         goldGlow.setColorAt(1.0, QColor(232, 163, 61, 0));
         p.fillRect(QRectF(r.left(), r.top(), capW + slant, r.height()), goldGlow);
 
-        // 旋转齿轮环 + 悍匠 Logo
         const qreal badgeR = qMin(r.height() * 0.36, 25.0 * scale_);
         const QPointF c(r.left() + 14.0 * scale_ + badgeR, r.center().y());
         QRadialGradient halo(c, badgeR * 1.25);
-        halo.setColorAt(0.0, QColor(232, 163, 61, 115));
+        halo.setColorAt(0.0, QColor(232, 163, 61, 118));
         halo.setColorAt(0.75, QColor(18, 13, 6, 190));
         halo.setColorAt(1.0, QColor(8, 12, 18, 0));
         p.setPen(Qt::NoPen);
@@ -375,7 +314,7 @@ void LargeSkewedHealthBar::paintEvent(QPaintEvent *) {
         p.save();
         p.translate(c);
         p.rotate(gearAngle_);
-        QPen dash(QColor(255, 201, 113, 220), qMax(1.6, 2.0 * scale_), Qt::CustomDashLine);
+        QPen dash(QColor(255, 201, 113, 225), qMax(1.6, 2.0 * scale_), Qt::CustomDashLine);
         dash.setDashPattern({2.2, 2.6});
         p.setPen(dash);
         p.setBrush(Qt::NoBrush);
@@ -387,9 +326,8 @@ void LargeSkewedHealthBar::paintEvent(QPaintEvent *) {
         if (!pm.isNull())
             p.drawPixmap(QPointF(c.x() - logoPx / 2.0, c.y() - logoPx / 2.0), pm);
 
-        // 悍匠文字标识
         const QRectF txtBox(c.x() + badgeR + 9.0 * scale_, r.top() + 8.0 * scale_,
-                            capW - (badgeR * 2.0 + 22.0 * scale_), r.height() - 16.0 * scale_);
+                            capW - (badgeR * 2.0 + 20.0 * scale_), r.height() - 16.0 * scale_);
         QFont fTitle = p.font();
         fTitle.setPixelSize(qMax(11, qRound(15.0 * scale_)));
         fTitle.setBold(true);
@@ -404,14 +342,13 @@ void LargeSkewedHealthBar::paintEvent(QPaintEvent *) {
         p.setPen(ui_theme::kTextSecondary);
         p.drawText(txtBox, Qt::AlignLeft | Qt::AlignBottom, roleSub_);
 
-        // 闪电斜切金色分界光条（将徽标区与血条区自然衔接）
-        p.setPen(QPen(QColor(255, 201, 113, 210), 2.0));
+        p.setPen(QPen(QColor(255, 201, 113, 215), 2.0));
         p.drawLine(QPointF(barZone.left() + slant, r.top() + 2),
                    QPointF(barZone.left() - slant * 0.35, r.bottom() - 2));
         p.restore();
     }
 
-    // 5. 右侧对称内嵌链路/FPS 微翼区
+    // 4. 右侧对称内嵌在线信号/FPS 微翼
     if (right_ && !badgeTop_.isEmpty()) {
         p.save();
         p.setClipPath(shape);
@@ -437,7 +374,116 @@ void LargeSkewedHealthBar::paintEvent(QPaintEvent *) {
         p.restore();
     }
 
-    // 6. 统一外描边（左翼带悍匠金向阵营色渐变，真正一体化）
+    // 5. 精密双层结构血条区：上半部标题 + 大号发光数值 + 百分比；下半部 10 格独立斜切能量装甲槽！
+    const qreal padL = !right_ ? slant + 16.0 * scale_ : cut + 14.0 * scale_;
+    const qreal padR = !right_ ? cut + 14.0 * scale_ : slant + 16.0 * scale_;
+    const QRectF inner(barZone.left() + padL, r.top() + 6.0 * scale_,
+                       barZone.width() - padL - padR, r.height() - 12.0 * scale_);
+
+    // 上半部：标题与大数值
+    const qreal headerH = inner.height() * 0.54;
+    const QRectF headerRect(inner.left(), inner.top(), inner.width(), headerH);
+    const QString pctText = valid_ ? QStringLiteral("%1%").arg(qRound(current_ * 100.0)) : QStringLiteral("--%");
+
+    QFont capFont = p.font();
+    capFont.setPixelSize(qMax(9, qRound(10.5 * scale_)));
+    capFont.setBold(true);
+    p.setFont(capFont);
+    p.setPen(ui_theme::kTextSecondary);
+    p.drawText(headerRect, (right_ ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignVCenter, title_);
+
+    // 中间/内侧大号发光 HP 读数
+    QFont hpFont = p.font();
+    hpFont.setPixelSize(qMax(17, qRound(26.0 * scale_)));
+    hpFont.setBold(true);
+    p.setFont(hpFont);
+    const Qt::Alignment hpAlign = (right_ ? Qt::AlignLeft : Qt::AlignRight) | Qt::AlignVCenter;
+    const QString hpDisplay = hpText_ + QStringLiteral(" HP  ") + pctText;
+    p.setPen(QColor(0, 0, 0, 140));
+    p.drawText(headerRect.translated(1.0, 1.2), hpAlign, hpDisplay);
+    p.setPen(ui_theme::kTextPrimary);
+    p.drawText(headerRect, hpAlign, hpDisplay);
+
+    // 下半部：精密 10 段斜切装甲能量槽（每格 = 500 HP，带凹槽纹理、掉血残影与白热前沿光斑）
+    const qreal trackH = qMax(10.0, inner.height() * 0.36);
+    const QRectF trackRect(inner.left(), inner.bottom() - trackH, inner.width(), trackH);
+    const qreal segSkew = trackH * 0.45;
+    const int segments = 10;
+    const qreal segGap = qMax(2.0, 3.0 * scale_);
+    const qreal segW = (trackRect.width() - segSkew - segGap * (segments - 1)) / segments;
+
+    auto makeSkewPath = [&](qreal x0, qreal x1) {
+        QPainterPath sp;
+        if (!right_) {
+            sp.moveTo(x0 + segSkew, trackRect.top());
+            sp.lineTo(x1 + segSkew, trackRect.top());
+            sp.lineTo(x1, trackRect.bottom());
+            sp.lineTo(x0, trackRect.bottom());
+        } else {
+            sp.moveTo(x0, trackRect.top());
+            sp.lineTo(x1, trackRect.top());
+            sp.lineTo(x1 + segSkew, trackRect.bottom());
+            sp.lineTo(x0 + segSkew, trackRect.bottom());
+        }
+        sp.closeSubpath();
+        return sp;
+    };
+
+    // 绘制 10 格独立斜切槽
+    for (int i = 0; i < segments; ++i) {
+        // left bar: 0..9 从左向右填充；right bar: 0..9 从右向左填充
+        const int logicalIdx = right_ ? (segments - 1 - i) : i;
+        const qreal x0 = trackRect.left() + i * (segW + segGap);
+        const qreal x1 = x0 + segW;
+        const QPainterPath segPath = makeSkewPath(x0, x1);
+
+        // 凹槽深色玻璃底 + 极细内边框
+        p.fillPath(segPath, QColor(5, 10, 18, 175));
+        p.strokePath(segPath, QPen(QColor(180, 210, 240, 42), 0.8));
+
+        if (!valid_) continue;
+        const qreal segStart = logicalIdx / qreal(segments);
+        const qreal segEnd = (logicalIdx + 1) / qreal(segments);
+        const qreal segFill = qBound(0.0, (current_ - segStart) / (segEnd - segStart), 1.0);
+        const qreal segTrail = qBound(0.0, (trail_ - segStart) / (segEnd - segStart), 1.0);
+
+        p.save();
+        p.setClipPath(segPath);
+
+        // 掉血金色/白热残影
+        if (segTrail > segFill + 0.01) {
+            const qreal tw = (segW + segSkew) * segTrail;
+            const QRectF tr = right_
+                ? QRectF(x1 + segSkew - tw, trackRect.top(), tw, trackH)
+                : QRectF(x0, trackRect.top(), tw, trackH);
+            p.fillRect(tr, QColor(255, 224, 163, 210));
+        }
+
+        // 主能量格填充（横向渐变 + 顶部液态高光）
+        if (segFill > 0.005) {
+            const qreal fw = (segW + segSkew) * segFill;
+            const QRectF fr = right_
+                ? QRectF(x1 + segSkew - fw, trackRect.top(), fw, trackH)
+                : QRectF(x0, trackRect.top(), fw, trackH);
+            QLinearGradient g(fr.topLeft(), fr.bottomLeft());
+            g.setColorAt(0.0, accent_.lighter(135));
+            g.setColorAt(0.45, accent_);
+            g.setColorAt(1.0, accent_.darker(130));
+            p.fillRect(fr, g);
+
+            // 顶部细高光条
+            p.fillRect(QRectF(fr.left(), fr.top(), fr.width(), trackH * 0.30), QColor(255, 255, 255, 78));
+
+            // 如果这是正在消耗的边缘格，绘制白热光刃前沿
+            if (segFill > 0.02 && segFill < 0.99) {
+                const qreal edgeX = right_ ? fr.left() : fr.right() - 2.0;
+                p.fillRect(QRectF(edgeX, trackRect.top(), 2.5, trackH), QColor(255, 255, 255, 235));
+            }
+        }
+        p.restore();
+    }
+
+    // 6. 统一外描边（左翼：悍匠金渐变向阵营色；右翼：阵营色渐变向战术青）
     QLinearGradient borderGrad(r.left(), 0, r.right(), 0);
     if (!right_ && hanjiangEmblem_) {
         borderGrad.setColorAt(0.0, ui_theme::kGoldLight);
@@ -453,28 +499,6 @@ void LargeSkewedHealthBar::paintEvent(QPaintEvent *) {
         borderGrad.setColorAt(1.0, accent_.lighter(120));
     }
     p.strokePath(shape, QPen(QBrush(borderGrad), 1.6));
-
-    // 7. 血量文字排版（位于血条区内部，左右对称）
-    const QRectF textBox = !right_
-        ? barZone.adjusted(slant + 14.0 * scale_, 5.0 * scale_, -cut - 10.0 * scale_, -5.0 * scale_)
-        : barZone.adjusted(cut + 10.0 * scale_, 5.0 * scale_, -slant - 14.0 * scale_, -5.0 * scale_);
-    const Qt::Alignment align = right_ ? Qt::AlignRight : Qt::AlignLeft;
-
-    QFont capFont = p.font();
-    capFont.setPixelSize(qMax(9, qRound(11.0 * scale_)));
-    capFont.setBold(true);
-    p.setFont(capFont);
-    p.setPen(QColor(242, 247, 252, 205));
-    p.drawText(textBox, align | Qt::AlignTop, title_);
-
-    QFont hpFont = p.font();
-    hpFont.setPixelSize(qMax(18, qRound(30.0 * scale_)));
-    hpFont.setBold(true);
-    p.setFont(hpFont);
-    p.setPen(QColor(0, 0, 0, 145));
-    p.drawText(textBox.translated(1.2, 1.5), align | Qt::AlignBottom, hpText_ + QStringLiteral(" HP"));
-    p.setPen(ui_theme::kTextPrimary);
-    p.drawText(textBox, align | Qt::AlignBottom, hpText_ + QStringLiteral(" HP"));
 }
 
 // ---------------- TacticalBar ----------------
@@ -569,11 +593,24 @@ void TacticalBar::paintEvent(QPaintEvent *) {
 
     if (current_ > 0.002) {
         const qreal fw = r.width() * current_;
+        const QPainterPath fp = skewedRect(fw);
         QLinearGradient grad(r.left(), 0, r.left() + fw, 0);
-        grad.setColorAt(0.0, accent_.darker(120));
-        grad.setColorAt(0.85, accent_);
-        grad.setColorAt(1.0, accent_.lighter(135));
-        p.fillPath(skewedRect(fw), grad);
+        grad.setColorAt(0.0, accent_.darker(125));
+        grad.setColorAt(0.80, accent_);
+        grad.setColorAt(1.0, accent_.lighter(145));
+        p.fillPath(fp, grad);
+        // 顶部液态高光 + 末端白热光刃
+        p.save();
+        p.setClipPath(fp);
+        p.fillRect(QRectF(r.left(), r.top(), fw, r.height() * 0.35), QColor(255, 255, 255, 65));
+        if (fw > 4.0) p.fillRect(QRectF(r.left() + fw - sk - 2.0, r.top(), 2.5, r.height()), QColor(255, 255, 255, 215));
+        p.restore();
+    }
+    // 4 段精密微刻度
+    p.setPen(QPen(QColor(5, 10, 18, 120), 1.0));
+    for (int i = 1; i < 4; ++i) {
+        const qreal x = r.left() + r.width() * i / 4.0;
+        p.drawLine(QPointF(x + sk * 0.4, r.top()), QPointF(x - sk * 0.4, r.bottom()));
     }
 }
 

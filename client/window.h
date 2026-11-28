@@ -155,6 +155,10 @@ private:
     HudCard *hudClockCard_ = nullptr, *hudTacticalStripCard_ = nullptr;
     HudCard *hudSelfCard_ = nullptr, *hudMapCard_ = nullptr;
     QLabel *hudTacticalStrip_ = nullptr;
+    HudCard *hudEconPanel_ = nullptr, *hudTelemetryPanel_ = nullptr;
+    HudCard *hudMechPanel_ = nullptr, *hudShortcutPanel_ = nullptr;
+    QLabel *hudEconBody_ = nullptr, *hudTelemetryBody_ = nullptr, *hudMechBody_ = nullptr;
+    TacticalBar *hudCpBar_ = nullptr, *hudDmgBar_ = nullptr, *hudTeamHpBar_ = nullptr;
     TacticalBar *hudSelfHeatBar_ = nullptr;
     QLabel *hudSelfHeatLbl_ = nullptr, *hudSelfAmmoLbl_ = nullptr, *hudSelfBuffLbl_ = nullptr;
     std::array<QLabel *, 4> hudAllyAmmo_{}, hudEnemyAmmo_{};
