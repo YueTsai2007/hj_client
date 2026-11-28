@@ -152,8 +152,12 @@ private:
     LogoBadge *hudBrandLogo_ = nullptr;
     QLabel *hudBrandTitle_ = nullptr, *hudBrandSub_ = nullptr;
     LargeSkewedHealthBar *hudAllyBigBar_ = nullptr, *hudEnemyBigBar_ = nullptr;
-    HudCard *hudClockCard_ = nullptr, *hudLinkCard_ = nullptr;
+    HudCard *hudClockCard_ = nullptr, *hudTacticalStripCard_ = nullptr;
     HudCard *hudSelfCard_ = nullptr, *hudMapCard_ = nullptr;
+    QLabel *hudTacticalStrip_ = nullptr;
+    TacticalBar *hudSelfHeatBar_ = nullptr;
+    QLabel *hudSelfHeatLbl_ = nullptr, *hudSelfAmmoLbl_ = nullptr, *hudSelfBuffLbl_ = nullptr;
+    std::array<QLabel *, 4> hudAllyAmmo_{}, hudEnemyAmmo_{};
     FloatingMessageFeed *hudFeed_ = nullptr;
     VignetteOverlay *vignette_ = nullptr;
     ModuleStrip *hudModuleStrip_ = nullptr;

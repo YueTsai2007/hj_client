@@ -80,6 +80,8 @@ public:
     void setAccent(const QColor &color);
     void setTitle(const QString &title);
     void setHealth(const QString &hpText, qreal ratio, bool valid);
+    void setHanjiangEmblem(bool enabled, const QString &roleSub = QString());
+    void setStatusBadge(const QString &topText, const QString &bottomText);
     void setScale(qreal scale) { scale_ = qBound(0.65, scale, 1.4); update(); }
     void setBackdropSource(VideoView *source) { backdropSource_ = source; }
 
@@ -88,6 +90,12 @@ protected:
 
 private:
     bool right_ = false;
+    bool hanjiangEmblem_ = false;
+    QString roleSub_;
+    QString badgeTop_;
+    QString badgeBottom_;
+    qreal gearAngle_ = 0.0;
+    QTimer *gearTimer_ = nullptr;
     QColor accent_{"#ff4655"};
     QString title_;
     QString hpText_{"--"};
