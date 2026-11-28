@@ -90,6 +90,23 @@ void Map::paintEvent(QPaintEvent *) {
         // 自己用绿色（最醒目）；其余按编号阵营取红/蓝
         const QColor fill = self ? QColor("#7fe0a8") : (id >= 100 ? QColor("#3ea8ff") : QColor("#ff5a67"));
 
+        // 己方视野扇形锥（FOV Cone，基于 yaw 朝向）
+        if (self) {
+            painter.save();
+            painter.translate(point);
+            if (!std::isnan(it->yaw)) painter.rotate(it->yaw);
+            const qreal coneR = radius * 5.2;
+            QRadialGradient coneGrad(QPointF(0, 0), coneR);
+            coneGrad.setColorAt(0.0, QColor(92, 230, 160, 105));
+            coneGrad.setColorAt(0.65, QColor(92, 230, 160, 38));
+            coneGrad.setColorAt(1.0, QColor(92, 230, 160, 0));
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(coneGrad);
+            // Qt drawPie 0° 在 3 点钟，逆时针为正；朝上为 90°，宽 64°
+            painter.drawPie(QRectF(-coneR, -coneR, coneR * 2.0, coneR * 2.0), (90 - 32) * 16, 64 * 16);
+            painter.restore();
+        }
+
         // 朝向箭头（有 yaw 时按角度旋转，无则朝上）
         painter.save();
         painter.translate(point);

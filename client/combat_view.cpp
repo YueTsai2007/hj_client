@@ -1,15 +1,18 @@
 #include "combat_view.h"
 #include "brand.h"
 #include "ui_theme.h"
+#include "video_view.h"
 
 #include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
+#include <QRadialGradient>
 #include <QResizeEvent>
 #include <QStackedWidget>
 #include <QTimer>
 #include <QVariantAnimation>
 #include <QtMath>
+#include <cmath>
 
 CombatView::CombatView(QWidget *parent) : QWidget(parent) {
     setAttribute(Qt::WA_StyledBackground, false);
@@ -24,7 +27,6 @@ CombatView::CombatView(QWidget *parent) : QWidget(parent) {
 
 void CombatView::resizeEvent(QResizeEvent *event) {
     QWidget::resizeEvent(event);
-    // 全屏无黑边：画面层与悬浮 HUD 层完整铺满视口
     content_ = QRectF(rect());
     stack_->setGeometry(rect());
     hud_->setGeometry(rect());
@@ -61,59 +63,50 @@ void Crosshair::paintEvent(QPaintEvent *) {
     const qreal arm = side * 0.13;
     const qreal gap = side * 0.045;
 
-    // 细十字准星
-    painter.setPen(QPen(QColor(241, 246, 252, 165), 1.6));
+    painter.setPen(QPen(QColor(242, 247, 252, 170), 1.6));
     painter.drawLine(QPointF(center.x() - gap - arm, center.y()), QPointF(center.x() - gap, center.y()));
     painter.drawLine(QPointF(center.x() + gap, center.y()), QPointF(center.x() + gap + arm, center.y()));
     painter.drawLine(QPointF(center.x(), center.y() - gap - arm), QPointF(center.x(), center.y() - gap));
     painter.drawLine(QPointF(center.x(), center.y() + gap), QPointF(center.x(), center.y() + gap + arm));
 
-    // 悍匠琥珀金中心点
     painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(255, 201, 113, 230));
+    painter.setBrush(QColor(255, 201, 113, 235));
     painter.drawEllipse(center, 2.2, 2.2);
 
-    // 外环双弧仪（左：枪口热量，右：本机血量）+ 悍匠齿轮微刻度
     const qreal arcR = side * 0.36;
     const QRectF arcRect(center.x() - arcR, center.y() - arcR, arcR * 2.0, arcR * 2.0);
-    const qreal penW = qMax(2.0, side * 0.018);
+    const qreal penW = qMax(2.2, side * 0.02);
 
-    // 轨道底色（左右各 90° 弧）
-    painter.setPen(QPen(QColor(255, 255, 255, 36), penW, Qt::SolidLine, Qt::FlatCap));
-    painter.drawArc(arcRect, 135 * 16, 90 * 16);   // 左侧弧
-    painter.drawArc(arcRect, -45 * 16, 90 * 16);   // 右侧弧
+    painter.setPen(QPen(QColor(255, 255, 255, 42), penW, Qt::SolidLine, Qt::FlatCap));
+    painter.drawArc(arcRect, 135 * 16, 90 * 16);
+    painter.drawArc(arcRect, -45 * 16, 90 * 16);
 
-    // 左弧：热量（低=青金，中=琥珀金，高=警示红）
     if (heatRatio_ >= 0.0) {
         QColor heatColor = heatRatio_ > 0.78 ? ui_theme::kRed
                          : heatRatio_ > 0.50 ? ui_theme::kGoldLight
                                              : ui_theme::kCyan;
-        heatColor.setAlpha(205);
+        heatColor.setAlpha(215);
         painter.setPen(QPen(heatColor, penW, Qt::SolidLine, Qt::FlatCap));
-        const int span = qRound(-90.0 * 16.0 * heatRatio_);
-        painter.drawArc(arcRect, 225 * 16, span);
+        painter.drawArc(arcRect, 225 * 16, qRound(-90.0 * 16.0 * heatRatio_));
     }
 
-    // 右弧：本机血量（低血量变红）
     if (hpRatio_ >= 0.0) {
         QColor hpColor = hpRatio_ < 0.30 ? ui_theme::kRed : ui_theme::kGreen;
-        hpColor.setAlpha(200);
+        hpColor.setAlpha(210);
         painter.setPen(QPen(hpColor, penW, Qt::SolidLine, Qt::FlatCap));
-        const int span = qRound(90.0 * 16.0 * hpRatio_);
-        painter.drawArc(arcRect, -45 * 16, span);
+        painter.drawArc(arcRect, -45 * 16, qRound(90.0 * 16.0 * hpRatio_));
     }
 
-    // 顶部与底部微弱齿轮刻度（呼应悍匠机械基因）
-    painter.setPen(QPen(QColor(232, 163, 61, 85), 1.2));
+    // 顶部与底部悍匠齿轮微刻度
+    painter.setPen(QPen(QColor(232, 163, 61, 95), 1.3));
     for (int deg : {-105, -90, -75, 75, 90, 105}) {
         const qreal rad = qDegreesToRadians(qreal(deg));
-        const QPointF p1(center.x() + std::cos(rad) * (arcR - 2.0), center.y() + std::sin(rad) * (arcR - 2.0));
-        const QPointF p2(center.x() + std::cos(rad) * (arcR + 3.5), center.y() + std::sin(rad) * (arcR + 3.5));
-        painter.drawLine(p1, p2);
+        painter.drawLine(QPointF(center.x() + std::cos(rad) * (arcR - 2.0), center.y() + std::sin(rad) * (arcR - 2.0)),
+                         QPointF(center.x() + std::cos(rad) * (arcR + 3.8), center.y() + std::sin(rad) * (arcR + 3.8)));
     }
 }
 
-// ---------------- HudCard ----------------
+// ---------------- HudCard (Liquid Glass) ----------------
 
 HudCard::HudCard(QWidget *parent) : QWidget(parent) {
     setAttribute(Qt::WA_TranslucentBackground, true);
@@ -126,43 +119,211 @@ void HudCard::paintEvent(QPaintEvent *) {
     const QRectF r = QRectF(rect()).adjusted(0.75, 0.75, -0.75, -0.75);
     const QPainterPath path = ui_theme::chamferedRect(r, cut_);
 
-    // 玻璃拟态纵向微渐变底
-    QLinearGradient fillGrad(r.topLeft(), r.bottomLeft());
-    fillGrad.setColorAt(0.0, QColor(14, 23, 36, qMin(235, alpha_ + 18)));
-    fillGrad.setColorAt(1.0, QColor(6, 11, 19, alpha_));
-    painter.fillPath(path, fillGrad);
+    const QImage backdrop = backdropSource_ ? backdropSource_->blurredBackdrop() : QImage();
+    const QSizeF vpSize = backdropSource_ ? QSizeF(backdropSource_->size()) : QSizeF();
+    const QPointF posInVp = QPointF(pos());
+    const QColor accent = accent_.isValid() ? accent_ : ui_theme::kGold;
 
-    // 可选悍匠淡色水印
+    ui_theme::drawLiquidGlass(painter, path, r, backdrop, vpSize, posInVp, accent, alpha_);
+
     if (watermark_) {
         painter.save();
         painter.setClipPath(path);
-        const int sz = qBound(36, qRound(qMin(r.width(), r.height()) * 0.85), 120);
-        painter.setOpacity(0.06);
+        const int sz = qBound(42, qRound(qMin(r.width(), r.height()) * 0.85), 120);
+        painter.setOpacity(0.065);
         painter.drawPixmap(QPointF(r.right() - sz * 0.82, r.bottom() - sz * 0.82),
                            brand::logo(sz, devicePixelRatioF()));
         painter.restore();
     }
 
-    // 1px 玻璃细边框
-    painter.strokePath(path, QPen(ui_theme::kGlassBorder, 1.0));
-
-    // 顶部霓虹流光强调条
-    const QColor glowColor = accent_.isValid() ? accent_ : ui_theme::kGold;
+    // 顶部细流光强调线 + L 型角标
     painter.save();
     painter.setClipPath(path);
     QLinearGradient topBar(r.left(), r.top(), r.right(), r.top());
-    QColor c0 = glowColor; c0.setAlpha(210);
-    QColor c1 = glowColor; c1.setAlpha(20);
+    QColor c0 = accent; c0.setAlpha(215);
+    QColor c1 = accent; c1.setAlpha(25);
     topBar.setColorAt(0.0, c0);
     topBar.setColorAt(0.65, c0);
     topBar.setColorAt(1.0, c1);
-    painter.fillRect(QRectF(r.left(), r.top(), r.width(), 2.2), topBar);
+    painter.fillRect(QRectF(r.left(), r.top(), r.width(), 2.0), topBar);
     painter.restore();
 
-    // L 型战术角标
-    QColor bracket = glowColor;
-    bracket.setAlpha(175);
-    ui_theme::drawCornerBrackets(painter, r, qMax(6.0, cut_ * 0.9), bracket, 1.4);
+    QColor bracket = accent;
+    bracket.setAlpha(185);
+    ui_theme::drawCornerBrackets(painter, r, qMax(6.0, cut_ * 0.88), bracket, 1.4);
+}
+
+// ---------------- LargeSkewedHealthBar (Classic Big Skewed Liquid Glass Bar) ----------------
+
+LargeSkewedHealthBar::LargeSkewedHealthBar(bool rightAligned, QWidget *parent)
+    : QWidget(parent), right_(rightAligned) {
+    setAttribute(Qt::WA_TranslucentBackground, true);
+    setAttribute(Qt::WA_NoSystemBackground, true);
+
+    valueAnim_ = new QVariantAnimation(this);
+    valueAnim_->setDuration(200);
+    valueAnim_->setEasingCurve(QEasingCurve::OutCubic);
+    connect(valueAnim_, &QVariantAnimation::valueChanged, this, [this](const QVariant &v) {
+        current_ = v.toReal();
+        update();
+    });
+
+    trailAnim_ = new QVariantAnimation(this);
+    trailAnim_->setDuration(560);
+    trailAnim_->setEasingCurve(QEasingCurve::OutQuad);
+    connect(trailAnim_, &QVariantAnimation::valueChanged, this, [this](const QVariant &v) {
+        trail_ = v.toReal();
+        update();
+    });
+}
+
+void LargeSkewedHealthBar::setAccent(const QColor &color) {
+    if (accent_ == color) return;
+    accent_ = color;
+    update();
+}
+
+void LargeSkewedHealthBar::setTitle(const QString &title) {
+    if (title_ == title) return;
+    title_ = title;
+    update();
+}
+
+void LargeSkewedHealthBar::setHealth(const QString &hpText, qreal ratio, bool valid) {
+    hpText_ = hpText;
+    if (!valid) {
+        valid_ = false;
+        target_ = current_ = trail_ = 0.0;
+        valueAnim_->stop();
+        trailAnim_->stop();
+        update();
+        return;
+    }
+    const qreal clamped = qBound(0.0, ratio, 1.0);
+    if (!valid_) {
+        valid_ = true;
+        target_ = current_ = trail_ = clamped;
+        update();
+        return;
+    }
+    if (qFuzzyCompare(clamped + 1.0, target_ + 1.0)) {
+        update();
+        return;
+    }
+    const qreal prev = current_;
+    target_ = clamped;
+    valueAnim_->stop();
+    valueAnim_->setStartValue(current_);
+    valueAnim_->setEndValue(target_);
+    valueAnim_->start();
+
+    if (target_ < prev) {
+        trailAnim_->stop();
+        trailAnim_->setStartValue(qMax(trail_, prev));
+        trailAnim_->setEndValue(target_);
+        trailAnim_->start();
+    } else {
+        trailAnim_->stop();
+        trail_ = target_;
+    }
+}
+
+void LargeSkewedHealthBar::paintEvent(QPaintEvent *) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QRectF r = QRectF(rect()).adjusted(1.0, 1.0, -1.0, -1.0);
+    const qreal cut = qMin(r.height() * 0.42, 26.0 * scale_);
+
+    // 经典对称大平行四边形斜切轮廓（左条向右内斜，右条向左内斜，向中央计时核心汇聚）
+    QPolygonF poly;
+    if (!right_) {
+        poly << r.topLeft()
+             << QPointF(r.right() - cut, r.top())
+             << r.bottomRight()
+             << QPointF(r.left() + cut * 0.35, r.bottom());
+    } else {
+        poly << QPointF(r.left() + cut, r.top())
+             << r.topRight()
+             << QPointF(r.right() - cut * 0.35, r.bottom())
+             << r.bottomLeft();
+    }
+    QPainterPath shape;
+    shape.addPolygon(poly);
+    shape.closeSubpath();
+
+    // 1. 液态玻璃折射底盘
+    const QImage backdrop = backdropSource_ ? backdropSource_->blurredBackdrop() : QImage();
+    const QSizeF vpSize = backdropSource_ ? QSizeF(backdropSource_->size()) : QSizeF();
+    ui_theme::drawLiquidGlass(p, shape, r, backdrop, vpSize, QPointF(pos()), accent_, 132);
+
+    // 2. 内部斜切血量填充 + 掉血残影 + 1000 HP 战术刻度线
+    p.save();
+    p.setClipPath(shape);
+    if (valid_) {
+        const auto barRect = [&](qreal frac) {
+            const qreal fw = r.width() * qBound(0.0, frac, 1.0);
+            return right_ ? QRectF(r.right() - fw, r.top(), fw, r.height())
+                          : QRectF(r.left(), r.top(), fw, r.height());
+        };
+        if (trail_ > current_ + 0.004) {
+            p.fillRect(barRect(trail_), QColor(255, 224, 163, 165));
+        }
+        if (current_ > 0.002) {
+            const QRectF fill = barRect(current_);
+            QLinearGradient grad(right_ ? fill.right() : fill.left(), r.top(),
+                                 right_ ? fill.left() : fill.right(), r.bottom());
+            QColor cStart = accent_.darker(135); cStart.setAlpha(200);
+            QColor cMid = accent_; cMid.setAlpha(215);
+            QColor cTip = accent_.lighter(130); cTip.setAlpha(235);
+            grad.setColorAt(0.0, cStart);
+            grad.setColorAt(0.78, cMid);
+            grad.setColorAt(1.0, cTip);
+            p.fillRect(fill, grad);
+
+            // 填充区域顶部液态玻璃二次反光
+            QLinearGradient fillSheen(fill.topLeft(), QPointF(fill.left(), fill.top() + fill.height() * 0.45));
+            fillSheen.setColorAt(0.0, QColor(255, 255, 255, 58));
+            fillSheen.setColorAt(1.0, QColor(255, 255, 255, 0));
+            p.fillRect(QRectF(fill.left(), fill.top(), fill.width(), fill.height() * 0.45), fillSheen);
+        }
+    }
+
+    // 5 段战术刻度线（对应 5000 HP 每 1000 HP 一格）
+    p.setPen(QPen(QColor(255, 255, 255, 34), 1.0));
+    for (int i = 1; i < 5; ++i) {
+        const qreal x = r.left() + r.width() * i / 5.0;
+        const qreal slant = right_ ? -cut * 0.45 : cut * 0.45;
+        p.drawLine(QPointF(x - slant * 0.5, r.top() + 4), QPointF(x + slant * 0.5, r.bottom() - 4));
+    }
+    p.restore();
+
+    // 3. 阵营高亮外描边
+    QColor border = accent_;
+    border.setAlpha(205);
+    p.strokePath(shape, QPen(border, 1.5));
+
+    // 4. 文字排版：大号发光血量 + 双语标签
+    const qreal padX = cut + 10.0 * scale_;
+    const QRectF textBox = r.adjusted(right_ ? padX : 18.0 * scale_, 4.0 * scale_,
+                                      right_ ? -18.0 * scale_ : -padX, -4.0 * scale_);
+    const Qt::Alignment align = right_ ? Qt::AlignRight : Qt::AlignLeft;
+
+    QFont capFont = p.font();
+    capFont.setPixelSize(qMax(9, qRound(11.0 * scale_)));
+    capFont.setBold(true);
+    p.setFont(capFont);
+    p.setPen(QColor(242, 247, 252, 200));
+    p.drawText(textBox, align | Qt::AlignTop, title_);
+
+    QFont hpFont = p.font();
+    hpFont.setPixelSize(qMax(18, qRound(30.0 * scale_)));
+    hpFont.setBold(true);
+    p.setFont(hpFont);
+    // 微妙暗阴影增强在亮背景上的可读性
+    p.setPen(QColor(0, 0, 0, 140));
+    p.drawText(textBox.translated(1.2, 1.5), align | Qt::AlignBottom, hpText_ + QStringLiteral(" HP"));
+    p.setPen(ui_theme::kTextPrimary);
+    p.drawText(textBox, align | Qt::AlignBottom, hpText_ + QStringLiteral(" HP"));
 }
 
 // ---------------- TacticalBar ----------------
@@ -220,7 +381,6 @@ void TacticalBar::setRatio(qreal ratio) {
     valueAnim_->start();
 
     if (target_ < prev) {
-        // 掉血残影延迟追踪
         trailAnim_->stop();
         trailAnim_->setStartValue(qMax(trail_, prev));
         trailAnim_->setEndValue(target_);
@@ -249,16 +409,13 @@ void TacticalBar::paintEvent(QPaintEvent *) {
         return path;
     };
 
-    // 底槽
-    p.fillPath(skewedRect(r.width()), QColor(255, 255, 255, 24));
+    p.fillPath(skewedRect(r.width()), QColor(255, 255, 255, 28));
     if (!valid_) return;
 
-    // 掉血白色/金色残影层
     if (trail_ > current_ + 0.004) {
         p.fillPath(skewedRect(r.width() * trail_), QColor(255, 224, 163, 185));
     }
 
-    // 主进度条（横向微发光渐变）
     if (current_ > 0.002) {
         const qreal fw = r.width() * current_;
         QLinearGradient grad(r.left(), 0, r.left() + fw, 0);
@@ -269,7 +426,7 @@ void TacticalBar::paintEvent(QPaintEvent *) {
     }
 }
 
-// ---------------- FloatingMessageFeed ----------------
+// ---------------- FloatingMessageFeed (Liquid Glass Toasts) ----------------
 
 FloatingMessageFeed::FloatingMessageFeed(QWidget *parent) : QWidget(parent) {
     setAttribute(Qt::WA_TranslucentBackground, true);
@@ -307,12 +464,13 @@ void FloatingMessageFeed::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    const qreal rowH = qMax(24.0, 30.0 * scale_);
+    const QImage backdrop = backdropSource_ ? backdropSource_->blurredBackdrop() : QImage();
+    const QSizeF vpSize = backdropSource_ ? QSizeF(backdropSource_->size()) : QSizeF();
+    const qreal rowH = qMax(24.0, 31.0 * scale_);
     const qreal gap = qMax(4.0, 6.0 * scale_);
     const qreal cut = qMax(5.0, 7.0 * scale_);
     qreal y = height();
 
-    // 从底部向上堆叠渲染半透明消息胶囊，保证紧贴底边且不遮挡中心
     auto drawPill = [&](const QString &prefix, const QString &body, const QColor &accent, qreal opacity) {
         if (opacity <= 0.02 || y - rowH < 0) return;
         y -= rowH;
@@ -321,22 +479,17 @@ void FloatingMessageFeed::paintEvent(QPaintEvent *) {
         p.setOpacity(opacity);
 
         const QPainterPath path = ui_theme::chamferedRect(r, cut);
-        QLinearGradient bg(r.left(), 0, r.right(), 0);
-        bg.setColorAt(0.0, QColor(8, 15, 24, 195));
-        bg.setColorAt(0.75, QColor(8, 15, 24, 155));
-        bg.setColorAt(1.0, QColor(8, 15, 24, 95));
-        p.fillPath(path, bg);
-        p.strokePath(path, QPen(QColor(accent.red(), accent.green(), accent.blue(), 110), 1.0));
+        ui_theme::drawLiquidGlass(p, path, r, backdrop, vpSize, QPointF(pos()), accent, 148);
 
-        // 左侧语义色条
-        p.fillRect(QRectF(r.left() + 1.0, r.top() + 3.0, 3.0, r.height() - 6.0), accent);
+        // 左侧语义霓虹竖条
+        p.fillRect(QRectF(r.left() + 1.5, r.top() + 3.5, 3.0, r.height() - 7.0), accent);
 
         QFont f = p.font();
         f.setPixelSize(qMax(10, qRound(12.5 * scale_)));
         f.setBold(true);
         p.setFont(f);
-        p.setPen(accent.lighter(120));
-        const QRectF prefixRect(r.left() + 12.0 * scale_, r.top(), 66.0 * scale_, r.height());
+        p.setPen(accent.lighter(125));
+        const QRectF prefixRect(r.left() + 12.0 * scale_, r.top(), 68.0 * scale_, r.height());
         p.drawText(prefixRect, Qt::AlignVCenter | Qt::AlignLeft, prefix);
 
         f.setBold(false);
@@ -350,20 +503,132 @@ void FloatingMessageFeed::paintEvent(QPaintEvent *) {
         y -= gap;
     };
 
-    // 最优先显示生效中的战场特殊机制（常驻高亮）
     if (!mechanismText_.isEmpty()) {
-        drawPill(QStringLiteral("机制激活"), mechanismText_, mechanismAccent_, 0.96);
+        drawPill(QStringLiteral("机制激活"), mechanismText_, mechanismAccent_, 0.98);
     }
 
     for (const auto &toast : toasts_) {
         const qint64 elapsed = toast.age.elapsed();
-        qreal opacity = 0.94;
+        qreal opacity = 0.95;
         if (elapsed < 220) {
-            opacity = 0.94 * (elapsed / 220.0);
+            opacity = 0.95 * (elapsed / 220.0);
         } else if (!toast.sticky && elapsed > 8000) {
-            // 8 秒后缓慢淡化为半透明静默态（保留 0.36 可读性，不再刺眼）
-            opacity = qMax(0.36, 0.94 - (elapsed - 8000) / 5000.0 * 0.58);
+            opacity = qMax(0.38, 0.95 - (elapsed - 8000) / 5000.0 * 0.57);
         }
         drawPill(toast.timeStr, toast.text, toast.accent, opacity);
+    }
+}
+
+// ---------------- VignetteOverlay (Low-HP / Hit Edge Pulse) ----------------
+
+VignetteOverlay::VignetteOverlay(QWidget *parent) : QWidget(parent) {
+    setAttribute(Qt::WA_TranslucentBackground, true);
+    setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    animTimer_ = new QTimer(this);
+    animTimer_->setInterval(40);
+    connect(animTimer_, &QTimer::timeout, this, [this] {
+        bool active = false;
+        if (hitFlash_ > 0.01) {
+            hitFlash_ = qMax(0.0, hitFlash_ - 0.08);
+            active = true;
+        }
+        if (lowHpIntensity_ > 0.01) {
+            phase_ += 0.14;
+            if (phase_ > 628.318) phase_ -= 628.318;
+            active = true;
+        }
+        if (active) update();
+        else animTimer_->stop();
+    });
+}
+
+void VignetteOverlay::setLowHealthRatio(qreal hpRatio) {
+    const qreal next = (hpRatio >= 0.0 && hpRatio < 0.30) ? qBound(0.15, (0.30 - hpRatio) / 0.30, 1.0) : 0.0;
+    if (qFuzzyCompare(next + 1.0, lowHpIntensity_ + 1.0)) return;
+    lowHpIntensity_ = next;
+    if (lowHpIntensity_ > 0.01 && !animTimer_->isActive()) animTimer_->start();
+    update();
+}
+
+void VignetteOverlay::triggerHitFlash() {
+    hitFlash_ = 1.0;
+    if (!animTimer_->isActive()) animTimer_->start();
+    update();
+}
+
+void VignetteOverlay::paintEvent(QPaintEvent *) {
+    const qreal pulse = lowHpIntensity_ > 0.01 ? lowHpIntensity_ * (0.55 + 0.45 * std::sin(phase_)) : 0.0;
+    const qreal strength = qMax(pulse * 0.65, hitFlash_ * 0.85);
+    if (strength <= 0.01) return;
+
+    QPainter p(this);
+    const QPointF center(width() / 2.0, height() / 2.0);
+    const qreal radius = std::hypot(width(), height()) * 0.52;
+    QRadialGradient grad(center, radius);
+    grad.setColorAt(0.0, QColor(255, 45, 65, 0));
+    grad.setColorAt(0.72, QColor(255, 45, 65, 0));
+    grad.setColorAt(1.0, QColor(255, 45, 65, qRound(135 * strength)));
+    p.fillRect(rect(), grad);
+}
+
+// ---------------- ModuleStrip (Embedded 8 Micro-Capsules) ----------------
+
+ModuleStrip::ModuleStrip(QWidget *parent) : QWidget(parent) {
+    setAttribute(Qt::WA_TranslucentBackground, true);
+    setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    blinkTimer_ = new QTimer(this);
+    blinkTimer_->setInterval(450);
+    connect(blinkTimer_, &QTimer::timeout, this, [this] {
+        bool hasFault = false;
+        for (int s : states_) if (s == 0) hasFault = true;
+        if (!hasFault) return;
+        blinkOn_ = !blinkOn_;
+        update();
+    });
+    blinkTimer_->start();
+}
+
+void ModuleStrip::setStates(const std::array<int, 8> &states) {
+    if (states_ == states) return;
+    states_ = states;
+    update();
+}
+
+void ModuleStrip::paintEvent(QPaintEvent *) {
+    static const char *labels[8] = {"电源", "RFID", "灯带", "小发", "大发", "UWB", "装甲", "图传"};
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    const qreal gap = qMax(3.0, 4.0 * scale_);
+    const qreal cellW = (width() - gap * 7.0) / 8.0;
+    const qreal h = height();
+
+    QFont f = p.font();
+    f.setPixelSize(qMax(8, qRound(9.5 * scale_)));
+    f.setBold(true);
+    p.setFont(f);
+
+    for (int i = 0; i < 8; ++i) {
+        const QRectF cell(i * (cellW + gap), 0.5, cellW, h - 1.0);
+        const int st = states_[static_cast<size_t>(i)];
+        QColor bg, border, txt;
+        if (st == 1) {
+            bg = QColor(92, 230, 160, 26);
+            border = QColor(92, 230, 160, 110);
+            txt = QColor(145, 240, 190, 215);
+        } else if (st == 0) {
+            bg = QColor(255, 70, 85, blinkOn_ ? 145 : 65);
+            border = QColor(255, 70, 85, 235);
+            txt = QColor(255, 240, 242, 255);
+        } else {
+            bg = QColor(255, 255, 255, 14);
+            border = QColor(154, 186, 218, 45);
+            txt = QColor(125, 145, 165, 175);
+        }
+        p.setPen(QPen(border, 0.9));
+        p.setBrush(bg);
+        p.drawRoundedRect(cell, 3.0, 3.0);
+        p.setPen(txt);
+        p.drawText(cell, Qt::AlignCenter, QString::fromUtf8(labels[i]));
     }
 }

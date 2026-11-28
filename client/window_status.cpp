@@ -243,16 +243,22 @@ void Window::refreshSummary() {
         html += QStringLiteral("</table>");
         analysis_->setText(html);
     }
-    if (modulePanel_) {
+    if (modulePanel_ || hudModuleStrip_) {
         static const char *keys[8] = {"powerManager", "rfid", "lightStrip", "smallShooter",
                                       "bigShooter", "uwb", "armor", "videoTransmission"};
         const auto modules = messageFields("RobotModuleStatus");
+        std::array<int, 8> states{{-1, -1, -1, -1, -1, -1, -1, -1}};
         for (size_t i = 0; i < moduleDots_.size(); ++i) {
             const auto value = modules.value(QLatin1String(keys[i]));
             QString color = QStringLiteral("#6d7885");
-            if (value.isDouble()) color = value.toInt() == 1 ? QStringLiteral("#7fe0a8") : QStringLiteral("#ff5a67");
+            if (value.isDouble()) {
+                const int st = value.toInt() == 1 ? 1 : 0;
+                states[i] = st;
+                color = st == 1 ? QStringLiteral("#5ce6a0") : QStringLiteral("#ff4655");
+            }
             if (moduleDots_[i]) moduleDots_[i]->setStyleSheet(QStringLiteral("color:%1;font-size:12px;").arg(color));
         }
+        if (hudModuleStrip_) hudModuleStrip_->setStates(states);
     }
     // 顶部提示条：机制倒计时（GlobalSpecialMechanism，数组形式）
     if (alert_) {
