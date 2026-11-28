@@ -222,6 +222,20 @@ void Window::start(const QString &host, quint16 port, const QString &id, quint16
                 const QString y = item.isObject() ? fieldValue(nested, "targetPosY") : QString::number(p.target_pos_y);
                 rows << QStringLiteral("%1%2: %3,%4").arg(i < 4 ? QStringLiteral("敌") : QStringLiteral("我"))
                     .arg(ids[i % 4]).arg(x, y);
+                // 将有效的雷达坐标同步落图（单位：厘米，或按量级兼容米/归一化）
+                if (self->connected_ && self->ownSide_ >= 0 && (p.target_pos_x > 0 || p.target_pos_y > 0)) {
+                    qreal rx = static_cast<qreal>(p.target_pos_x);
+                    qreal ry = static_cast<qreal>(p.target_pos_y);
+                    if (rx > 30.0 || ry > 30.0) { rx /= 2800.0; ry /= 1500.0; }
+                    else if (rx > 1.5 || ry > 1.5) { rx = field::normX(rx); ry = field::normY(ry); }
+                    if (rx >= 0.0 && rx <= 1.0 && ry >= 0.0 && ry <= 1.0) {
+                        const bool isEnemy = i < 4;
+                        const int targetSide = isEnemy ? (1 - self->ownSide_) : self->ownSide_;
+                        const uint rid = static_cast<uint>(ids[i % 4] + targetSide * 100);
+                        self->map_->setRobotPosition(rid, QPointF(rx, ry));
+                        if (self->mapHud_) self->mapHud_->setRobotPosition(rid, QPointF(rx, ry));
+                    }
+                }
             }
             self->radar_->setText(QStringLiteral("雷达坐标（厘米）：") + rows.join(QStringLiteral("  ")));
             self->radarAge_.restart();
@@ -270,6 +284,10 @@ void Window::addEvent(const QString &text) {
     item->setForeground(color);
     events_->insertItem(0, item);
     while (events_->count() > 100) delete events_->takeItem(events_->count() - 1);
+    if (hudFeed_) {
+        const bool sticky = text.contains(QStringLiteral("判罚")) || text.contains(QStringLiteral("扣血"));
+        hudFeed_->pushMessage(QDateTime::currentDateTime().toString("HH:mm:ss"), text, color, sticky);
+    }
 }
 
 void Window::updateVideo() {
@@ -318,14 +336,15 @@ void Window::recordMessage(std::unique_ptr<rm2027::Message> message) {
         ++record.count;
     }
 
-    // 收到即更新：同一轮事件循环内多次消息合并成一次刷新
-    if (!refreshPending_) {
-        refreshPending_ = true;
-        QMetaObject::invokeMethod(this, [this] {
-            refreshPending_ = false;
-            markStale();
-            refreshSummary();
-            updateAlert();
+    // 收到即更新：原子合并同一轮事件循环内的多次消息，使用 QPointer 防止析构悬空
+    if (!refreshPending_.exchange(true, std::memory_order_acq_rel)) {
+        QPointer<Window> self(this);
+        QMetaObject::invokeMethod(this, [self] {
+            if (!self) return;
+            self->refreshPending_.store(false, std::memory_order_release);
+            self->markStale();
+            self->refreshSummary();
+            self->updateAlert();
         }, Qt::QueuedConnection);
     }
 }

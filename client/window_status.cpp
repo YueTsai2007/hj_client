@@ -1,5 +1,6 @@
 #include "window.h"
 #include "map.h"
+#include "combat_view.h"
 #include "topics.h"
 #include <QTimer>
 #include "window_helpers.h"
@@ -291,9 +292,12 @@ void Window::refreshSummary() {
         if (parts.isEmpty()) {
             alert_->clear();
             alert_->setVisible(false);
+            if (hudFeed_) hudFeed_->setMechanismBanner(QString(), QColor("#e8a33d"));
         } else {
-            alert_->setText(QStringLiteral("● ") + parts.join(QStringLiteral("　·　")));
+            const QString joined = parts.join(QStringLiteral("　·　"));
+            alert_->setText(QStringLiteral("● ") + joined);
             alert_->setVisible(true);
+            if (hudFeed_) hudFeed_->setMechanismBanner(joined, QColor("#e8a33d"));
         }
     }
     const auto setLocal = [this](int index, const QString &text) {

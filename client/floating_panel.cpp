@@ -1,13 +1,16 @@
 #include "floating_panel.h"
+#include "brand.h"
+#include "ui_theme.h"
 
-#include <QLabel>
-#include <QPainter>
-#include <QMouseEvent>
-#include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QLabel>
+#include <QLinearGradient>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
+#include <QVBoxLayout>
 
 namespace {
-// 用普通 QWidget 做缩放握把：QSizeGrip 只能缩放顶层窗口，对子控件无效
 class ResizeGrip : public QWidget {
 public:
     explicit ResizeGrip(FloatingPanel *panel) : QWidget(panel), panel_(panel) {
@@ -19,7 +22,7 @@ public:
 protected:
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
-        painter.setPen(QPen(QColor(232, 163, 61, 160), 1.5));
+        painter.setPen(QPen(QColor(232, 163, 61, 180), 1.5));
         for (int i = 0; i < 3; ++i) {
             const int offset = 4 + i * 4;
             painter.drawLine(width() - offset, height() - 2, width() - 2, height() - offset);
@@ -48,20 +51,27 @@ private:
 FloatingPanel::FloatingPanel(const QString &title, QWidget *parent) : QFrame(parent) {
     setObjectName("floatingPanel");
     setStyleSheet(QStringLiteral(
-        "QFrame#floatingPanel{background:rgba(9,14,21,0.97);border:1px solid rgba(232,163,61,0.45);"
-        "border-radius:12px;} QLabel{color:#eaf1f7;}"));
+        "QFrame#floatingPanel{background:transparent;border:none;}"
+        "QLabel{color:#f1f6fc;background:transparent;}"));
     setMinimumSize(320, 220);
-    setAttribute(Qt::WA_StyledBackground, true);
+    setAttribute(Qt::WA_TranslucentBackground, true);
 
     auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(14, 10, 14, 12);
+    outer->setContentsMargins(16, 12, 16, 12);
     outer->setSpacing(8);
 
     auto *head = new QHBoxLayout;
+    head->setSpacing(8);
+    auto *badge = new LogoBadge(24, this);
+    badge->setAnimated(false);
     auto *titleLabel = new QLabel(title, this);
-    titleLabel->setStyleSheet(QStringLiteral("color:#ffc971;font-size:18px;font-weight:700;"));
+    titleLabel->setStyleSheet(QStringLiteral("color:#ffc971;font-size:17px;font-weight:700;"));
+    auto *tag = new QLabel(QStringLiteral("HJ // OVERLAY"), this);
+    tag->setStyleSheet(QStringLiteral("color:rgba(232,163,61,150);font-size:10px;font-weight:700;"));
+    head->addWidget(badge);
     head->addWidget(titleLabel);
     head->addStretch();
+    head->addWidget(tag);
     outer->addLayout(head);
 
     body_ = new QVBoxLayout;
@@ -70,7 +80,7 @@ FloatingPanel::FloatingPanel(const QString &title, QWidget *parent) : QFrame(par
     outer->addLayout(body_, 1);
 
     status_ = new QLabel(this);
-    status_->setStyleSheet(QStringLiteral("color:#7fe0a8;font-size:13px;font-weight:700;"));
+    status_->setStyleSheet(QStringLiteral("color:#5ce6a0;font-size:13px;font-weight:700;"));
     outer->addWidget(status_);
 
     auto *grip = new ResizeGrip(this);
@@ -80,15 +90,39 @@ FloatingPanel::FloatingPanel(const QString &title, QWidget *parent) : QFrame(par
     outer->addLayout(bottom);
 }
 
+void FloatingPanel::paintEvent(QPaintEvent *) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QRectF r = QRectF(rect()).adjusted(1.0, 1.0, -1.0, -1.0);
+    const QPainterPath path = ui_theme::chamferedRect(r, 14.0);
+
+    QLinearGradient bg(r.topLeft(), r.bottomLeft());
+    bg.setColorAt(0.0, QColor(12, 20, 32, 232));
+    bg.setColorAt(1.0, QColor(6, 11, 19, 224));
+    p.fillPath(path, bg);
+
+    // 右下角悍匠淡色水印
+    p.save();
+    p.setClipPath(path);
+    const int wm = qBound(80, qMin(width(), height()) / 2, 170);
+    p.setOpacity(0.055);
+    p.drawPixmap(QPointF(r.right() - wm * 0.8, r.bottom() - wm * 0.8),
+                 brand::logo(wm, devicePixelRatioF()));
+    p.restore();
+
+    p.strokePath(path, QPen(QColor(232, 163, 61, 130), 1.2));
+    ui_theme::drawCornerBrackets(p, r, 12.0, ui_theme::kGoldLight, 1.8);
+}
+
 void FloatingPanel::setStatus(const QString &text, bool ok) {
     if (!status_) return;
     status_->setStyleSheet(QStringLiteral("color:%1;font-size:13px;font-weight:700;")
-                               .arg(ok ? QStringLiteral("#7fe0a8") : QStringLiteral("#ff8a93")));
+                               .arg(ok ? QStringLiteral("#5ce6a0") : QStringLiteral("#ff6b77")));
     status_->setText(text);
 }
 
 void FloatingPanel::mousePressEvent(QMouseEvent *event) {
-    if (event->button() == Qt::LeftButton && event->pos().y() < 40) {
+    if (event->button() == Qt::LeftButton && event->pos().y() < 42) {
         dragging_ = true;
         dragOffset_ = event->pos();
         raise();

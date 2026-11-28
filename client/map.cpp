@@ -78,8 +78,9 @@ void Map::paintEvent(QPaintEvent *) {
     for (auto it = robots_.cbegin(); it != robots_.cend(); ++it) {
         const auto position = it->position;
         const qreal nx = (flipped_ != mirror_) ? 1.0 - position.x() : position.x();
+        const qreal ny = flipped_ ? position.y() : (1.0 - position.y());
         const auto point = fieldOrigin + QPointF(nx * fieldWidth + calX_ * fit,
-                                                 (1.0 - position.y()) * fieldHeight + calY_ * fit);
+                                                 ny * fieldHeight + calY_ * fit);
         const uint id = it.key();
         const int index = numberOrder.indexOf(static_cast<int>(id % 100));
         const size_t hpIndex = static_cast<size_t>((id >= 100 ? 4 : 0) + qMax(0, index));
@@ -286,7 +287,8 @@ void Map::paintSchematic(QPainter &p) {
     p.drawLine(m, height() - m - L, m, height() - m); p.drawLine(m, height() - m, m + L, height() - m);
     p.drawLine(width() - m, height() - m - L, width() - m, height() - m); p.drawLine(width() - m, height() - m, width() - m - L, height() - m);
 
-    // 底部说明胶囊
+    // 底部说明胶囊（紧凑小地图下隐藏，避免遮挡场地）
+    if (height() < 240) return;
     const QString note = property("demoMode").toBool() ? QStringLiteral("模拟坐标") : QStringLiteral("坐标待校准");
     QFont f = font(); f.setPointSize(9); p.setFont(f);
     const QRect tr = p.fontMetrics().boundingRect(note).adjusted(-10, -4, 10, 4);

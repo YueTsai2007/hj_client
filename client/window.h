@@ -5,6 +5,7 @@
 #include <QRect>
 #include <QVector>
 #include <array>
+#include <atomic>
 #include <memory>
 #include <map>
 #include <mutex>
@@ -18,9 +19,13 @@ class QListWidget;
 class Map;
 class CombatView;
 class HudCard;
+class TacticalBar;
+class FloatingMessageFeed;
 class FloatingPanel;
 class Crosshair;
+class LogoBadge;
 class QTimer;
+class QToolBar;
 class QStackedWidget;
 class QVBoxLayout;
 class QAction;
@@ -43,6 +48,7 @@ private:
     void keyPressEvent(QKeyEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
     void setupUi();
+    void syncCombatChrome();
     void buildCombatView();
     void layoutCombatHud(const QRectF &content);
     void updateCombatHud();
@@ -88,6 +94,7 @@ private:
     Role role_ = Role::Unknown;
     uint number_ = 0;
     int side_ = -1;
+    QToolBar *toolbar_ = nullptr;
     QVBoxLayout *primaryLayout_ = nullptr;
     QSplitter *workspace_ = nullptr, *sidebar_ = nullptr;
     QList<QWidget *> sidebarModules_, defaultSidebar_;
@@ -130,7 +137,7 @@ private:
     uint64_t videoSequence_ = 0;
     std::vector<uint8_t> frame_;
 
-    // ---- 作战视图 v3 ----
+    // ---- 作战视图 v4（全屏图传 + 悍匠左上角徽标 + 半透明悬浮消息流 + 右下角小地图）----
     CombatView *combat_ = nullptr;
     Crosshair *crosshair_ = nullptr;
     QAction *crosshairAction_ = nullptr;
@@ -138,25 +145,32 @@ private:
     QWidget *dataPage_ = nullptr;
     Map *mapHud_ = nullptr;
     VideoView *combatVideo_ = nullptr;
+    HudCard *hudBrandCard_ = nullptr;
+    LogoBadge *hudBrandLogo_ = nullptr;
+    QLabel *hudBrandTitle_ = nullptr, *hudBrandSub_ = nullptr;
+    HudCard *hudAllyBaseCard_ = nullptr, *hudEnemyBaseCard_ = nullptr;
+    HudCard *hudClockCard_ = nullptr, *hudLinkCard_ = nullptr;
+    HudCard *hudSelfCard_ = nullptr, *hudMapCard_ = nullptr;
+    FloatingMessageFeed *hudFeed_ = nullptr;
     QLabel *hudAllyBase_ = nullptr, *hudEnemyBase_ = nullptr;
     QLabel *hudAllyBaseName_ = nullptr, *hudEnemyBaseName_ = nullptr;
     QLabel *hudClock_ = nullptr, *hudStage_ = nullptr, *hudScore_ = nullptr;
     QLabel *hudOutpostAlly_ = nullptr, *hudOutpostEnemy_ = nullptr;
-    QProgressBar *hudOutpostAllyBar_ = nullptr, *hudOutpostEnemyBar_ = nullptr;
+    TacticalBar *hudOutpostAllyBar_ = nullptr, *hudOutpostEnemyBar_ = nullptr;
     QLabel *hudStats_ = nullptr;
     QLabel *hudLink_ = nullptr;
     QLabel *hudSelfId_ = nullptr, *hudSelfHp_ = nullptr, *hudSelfKv_ = nullptr;
-    QLabel *hudTicker_ = nullptr, *hudTickerEvent_ = nullptr, *hudLegend_ = nullptr;
-    QProgressBar *hudAllyBar_ = nullptr, *hudEnemyBar_ = nullptr, *hudSelfBar_ = nullptr;
+    QLabel *hudLegend_ = nullptr;
+    TacticalBar *hudAllyBar_ = nullptr, *hudEnemyBar_ = nullptr, *hudSelfBar_ = nullptr;
     QWidget *hudAllySquad_ = nullptr, *hudEnemySquad_ = nullptr;
     std::array<QLabel *, 4> hudAllyHp_{}, hudEnemyHp_{};
-    std::array<QProgressBar *, 4> hudAllyHpBar_{}, hudEnemyHpBar_{};
-    QVector<QPair<QWidget *, QRect>> hudGeometry_;
+    std::array<TacticalBar *, 4> hudAllyHpBar_{}, hudEnemyHpBar_{};
     QVector<HudCard *> hudCards_;
     QVector<QPair<QLabel *, int>> hudFonts_;
     qreal hudScale_ = 1.0;
+    int minimapMode_ = 0;   // 0=右下角小地图, 1=展开战术大地图, 2=收起隐藏（M 键切换）
     std::map<std::string, uint64_t> hudCounts_;
-    bool refreshPending_ = false;
+    std::atomic<bool> refreshPending_{false};
 
     // 兑换面板（O 键）
     QWidget *exchangePanel_ = nullptr;

@@ -4,6 +4,7 @@
 #include "combat_view.h"
 #include "map.h"
 #include "brand.h"
+#include "ui_theme.h"
 #include "video_view.h"
 #include <QSettings>
 #include <QStackedWidget>
@@ -318,10 +319,12 @@ void Window::setupUi() {
         "QLabel#topBar{background:#111a24;border:1px solid #2b3644;border-radius:6px;"
         "padding:5px 12px;color:#eaf1f7;font-size:13px;}"));
     shellLayout->insertWidget(1, topBar_);
-    auto *toolbar = addToolBar(QStringLiteral("窗口布局"));
+    toolbar_ = addToolBar(QStringLiteral("窗口布局"));
+    auto *toolbar = toolbar_;
     toolbar->setObjectName("layoutToolbar");
     toolbar->setMovable(false);
     auto *switchView = toolbar->addAction(QStringLiteral("图传 / 地图  F2"));
+    addAction(switchView);
     switchView->setShortcut(QKeySequence(Qt::Key_F2));
     switchView->setAutoRepeat(false);
     connect(switchView, &QAction::triggered, this, [this] {
@@ -336,6 +339,7 @@ void Window::setupUi() {
         }
     });
     auto *crosshairToggle = toolbar->addAction(QStringLiteral("准星  F4"));
+    addAction(crosshairToggle);
     crosshairToggle->setCheckable(true);
     crosshairToggle->setShortcut(QKeySequence(Qt::Key_F4));
     crosshairToggle->setAutoRepeat(false);
@@ -350,10 +354,34 @@ void Window::setupUi() {
     auto *dataViewAction = toolbar->addAction(QStringLiteral("作战 / 数据视图  F3"));
     dataViewAction->setShortcut(QKeySequence(Qt::Key_F3));
     dataViewAction->setAutoRepeat(false);
+    addAction(dataViewAction);
     connect(dataViewAction, &QAction::triggered, this, [this] {
         if (!mainStack_ || !combat_) return;
         mainStack_->setCurrentIndex(mainStack_->currentWidget() == combat_ ? 1 : 0);
+        syncCombatChrome();
         updateCombatHud();
+    });
+    auto *fillModeAction = toolbar->addAction(QStringLiteral("画面铺满 / 等比  F5"));
+    fillModeAction->setShortcut(QKeySequence(Qt::Key_F5));
+    fillModeAction->setAutoRepeat(false);
+    addAction(fillModeAction);
+    connect(fillModeAction, &QAction::triggered, this, [this] {
+        if (!combatVideo_) return;
+        combatVideo_->setFillMode(!combatVideo_->fillMode());
+        if (hudFeed_) {
+            hudFeed_->pushMessage(
+                QStringLiteral("画面"),
+                combatVideo_->fillMode() ? QStringLiteral("图传切换为全屏铺满模式") : QStringLiteral("图传切换为等比完整模式"),
+                ui_theme::kGoldLight, false);
+        }
+    });
+    auto *minimapAction = toolbar->addAction(QStringLiteral("小地图缩放  M"));
+    minimapAction->setShortcut(QKeySequence(Qt::Key_M));
+    minimapAction->setAutoRepeat(false);
+    addAction(minimapAction);
+    connect(minimapAction, &QAction::triggered, this, [this] {
+        minimapMode_ = (minimapMode_ + 1) % 3;
+        if (combat_) layoutCombatHud(combat_->contentRect());
     });
     connect(toolbar->addAction(QStringLiteral("兑换 / 买活  O")), &QAction::triggered, this, &Window::toggleExchangePanel);
     connect(toolbar->addAction(QStringLiteral("状态检测")), &QAction::triggered, this, [this] {
@@ -537,6 +565,13 @@ void Window::setupUi() {
     mainStack_->addWidget(dataPage_);
     mainStack_->setCurrentWidget(combat_);
     if (qEnvironmentVariableIntValue("HJ_START_DATA_VIEW") == 1) mainStack_->setCurrentWidget(dataPage_);
+    syncCombatChrome();
+}
+
+void Window::syncCombatChrome() {
+    if (!toolbar_ || !mainStack_) return;
+    // 作战视图隐藏顶部传统工具栏，实现真正全屏无黑边图传；快捷键全部绑定在 Window 上持续有效
+    toolbar_->setVisible(mainStack_->currentWidget() != combat_);
 }
 
 namespace {
@@ -569,106 +604,118 @@ void Window::buildCombatView() {
     mapLayout->setContentsMargins(0, 0, 0, 0);
     mapHud_ = new Map;
     mapHud_->setProperty("demoMode", demoMode_);
-    mapLayout->addWidget(mapHud_);
+    // 小地图挂在右下角悬浮卡中；F2 切换到全屏地图页时复用独立全屏地图
+    auto *fullMap = new Map;
+    fullMap->setProperty("demoMode", demoMode_);
+    fullMap->setObjectName("combatFullMap");
+    mapLayout->addWidget(fullMap);
     stack->addWidget(mapPage);
     stack->setCurrentIndex(0);
 
     QWidget *hud = combat_->hud();
-    auto makeCard = [this, hud](const QRect &base) {
+    auto makeCard = [this, hud](const QColor &accent, bool watermark = false, int alpha = 166) {
         auto *card = new HudCard(hud);
-        hudGeometry_.append({card, base});
+        card->setAccent(accent);
+        card->setWatermark(watermark);
+        card->setOpacityAlpha(alpha);
         hudCards_.append(card);
         return card;
     };
-    const QColor muted("#8da0b3");
-    const QColor primary("#eaf1f7");
-    const QColor red("#ff5a67");
-    const QColor blue("#3ea8ff");
-    const QColor allyAccent = ownSide_ == 1 ? blue : red;
-    const QColor enemyAccent = ownSide_ == 1 ? red : blue;
-    const QColor brand = allyAccent;
 
-    // 己方 / 敌方基地卡
-    auto buildBase = [&](const QRect &rect, bool ally) {
-        auto *card = makeCard(rect);
+    const QColor muted = ui_theme::kTextSecondary;
+    const QColor primary = ui_theme::kTextPrimary;
+    const QColor allyAccent = ownSide_ == 1 ? ui_theme::kBlue : ui_theme::kRed;
+    const QColor enemyAccent = ownSide_ == 1 ? ui_theme::kRed : ui_theme::kBlue;
+
+    // 1. 左上角：悍匠战队 Logo + 战队身份锚点卡
+    hudBrandCard_ = makeCard(ui_theme::kGold, false, 182);
+    auto *brandLayout = new QHBoxLayout(hudBrandCard_);
+    brandLayout->setContentsMargins(12, 8, 14, 8);
+    brandLayout->setSpacing(10);
+    hudBrandLogo_ = new LogoBadge(44, hudBrandCard_);
+    auto *brandTextCol = new QVBoxLayout;
+    brandTextCol->setContentsMargins(0, 0, 0, 0);
+    brandTextCol->setSpacing(1);
+    hudBrandTitle_ = hudLabel(QStringLiteral("HANJIANG // 悍匠"), 16, ui_theme::kGoldLight, hudBrandCard_, true);
+    hudBrandSub_ = hudLabel(QStringLiteral("%1 · RM27 战车终端").arg(roleLabel()), 11, muted, hudBrandCard_);
+    hudFonts_.append({hudBrandTitle_, 16});
+    hudFonts_.append({hudBrandSub_, 11});
+    brandTextCol->addWidget(hudBrandTitle_);
+    brandTextCol->addWidget(hudBrandSub_);
+    brandLayout->addWidget(hudBrandLogo_);
+    brandLayout->addLayout(brandTextCol, 1);
+
+    // 2. 己方 / 敌方基地悬浮卡（带斜切残影血条）
+    auto buildBase = [&](bool ally) {
+        auto *card = makeCard(ally ? allyAccent : enemyAccent, false, 162);
         auto *layout = new QVBoxLayout(card);
-        layout->setContentsMargins(16, 10, 16, 12);
-        layout->setSpacing(2);
-        auto *cap = hudLabel(ally ? QStringLiteral("己方基地 · RED BASE") : QStringLiteral("敌方基地 · BLUE BASE"), 11, muted, card);
-        hudFonts_.append({cap, 11});
+        layout->setContentsMargins(14, 8, 14, 10);
+        layout->setSpacing(3);
+        auto *cap = hudLabel(ally ? QStringLiteral("己方基地 // ALLY BASE") : QStringLiteral("敌方基地 // ENEMY BASE"), 10, muted, card);
+        hudFonts_.append({cap, 10});
         auto *row = new QHBoxLayout;
         row->setSpacing(6);
-        auto *value = hudLabel(QStringLiteral("--"), 40, primary, card, true);
-        hudFonts_.append({value, 40});
-        auto *unit = hudLabel(QStringLiteral("HP"), 15, muted, card);
-        hudFonts_.append({unit, 15});
+        auto *value = hudLabel(QStringLiteral("--"), 34, primary, card, true);
+        hudFonts_.append({value, 34});
+        auto *unit = hudLabel(QStringLiteral("HP"), 13, muted, card);
+        hudFonts_.append({unit, 13});
         row->addWidget(value);
         row->addWidget(unit);
         row->addStretch();
-        auto *bar = new QProgressBar(card);
-        bar->setRange(0, 1000);
-        bar->setTextVisible(false);
-        bar->setFixedHeight(5);
-        const QString color = (ally ? allyAccent : enemyAccent).name();
-        bar->setStyleSheet(QStringLiteral(
-            "QProgressBar{background:rgba(255,255,255,26);border:none;border-radius:2px;}"
-            "QProgressBar::chunk{background:%1;border-radius:2px;}").arg(color));
+        auto *bar = new TacticalBar(card);
+        bar->setAccent(ally ? allyAccent : enemyAccent);
+        bar->setFixedHeight(6);
         layout->addWidget(cap);
         layout->addLayout(row);
         layout->addWidget(bar);
-        if (ally) { hudAllyBase_ = value; hudAllyBaseName_ = cap; hudAllyBar_ = bar; }
-        else { hudEnemyBase_ = value; hudEnemyBaseName_ = cap; hudEnemyBar_ = bar; }
+        if (ally) { hudAllyBaseCard_ = card; hudAllyBase_ = value; hudAllyBaseName_ = cap; hudAllyBar_ = bar; }
+        else { hudEnemyBaseCard_ = card; hudEnemyBase_ = value; hudEnemyBaseName_ = cap; hudEnemyBar_ = bar; }
     };
-    buildBase(QRect(36, 32, 320, 96), true);
-    buildBase(QRect(1564, 32, 320, 96), false);
+    buildBase(true);
+    buildBase(false);
 
-    // 计时卡
-    auto *clockCard = makeCard(QRect(830, 28, 260, 100));
-    auto *clockLayout = new QVBoxLayout(clockCard);
-    clockLayout->setContentsMargins(8, 6, 8, 8);
+    // 3. 顶部居中：战术计时胶囊卡
+    hudClockCard_ = makeCard(ui_theme::kGold, false, 178);
+    auto *clockLayout = new QVBoxLayout(hudClockCard_);
+    clockLayout->setContentsMargins(10, 6, 10, 6);
     clockLayout->setSpacing(0);
-    hudClock_ = hudLabel(QStringLiteral("--:--"), 56, primary, clockCard, true);
-    hudClock_->setAlignment(Qt::AlignCenter);
-    hudStage_ = hudLabel(QStringLiteral("等待数据"), 12, brand, clockCard);
+    hudStage_ = hudLabel(QStringLiteral("HANJIANG TELEMETRY"), 10, ui_theme::kGold, hudClockCard_, true);
     hudStage_->setAlignment(Qt::AlignCenter);
-    hudScore_ = hudLabel(QStringLiteral("红 -- : -- 蓝"), 13, muted, clockCard);
+    hudClock_ = hudLabel(QStringLiteral("--:--"), 46, primary, hudClockCard_, true);
+    hudClock_->setAlignment(Qt::AlignCenter);
+    hudScore_ = hudLabel(QStringLiteral("-- : --"), 13, ui_theme::kGoldLight, hudClockCard_, true);
     hudScore_->setAlignment(Qt::AlignCenter);
-    hudScore_->setTextFormat(Qt::RichText);
-    hudFonts_.append({hudClock_, 56});
-    hudFonts_.append({hudStage_, 12});
+    hudFonts_.append({hudStage_, 10});
+    hudFonts_.append({hudClock_, 46});
     hudFonts_.append({hudScore_, 13});
-    clockLayout->addWidget(hudClock_);
     clockLayout->addWidget(hudStage_);
+    clockLayout->addWidget(hudClock_);
     clockLayout->addWidget(hudScore_);
-    clockLayout->addStretch();
 
-    // 双方机体血条（贴边、低饱和、不抢画面）；前哨站并入本区块，行内一条略粗的条
+    // 4. 双方前哨与 4 机紧凑编队条（低遮挡半透明）
     const QList<int> squadIds{1, 3, 4, 7};
     const QStringList squadNames{QStringLiteral("重装"), QStringLiteral("步兵"), QStringLiteral("步兵"), QStringLiteral("哨兵")};
-    auto buildSquad = [&](const QRect &rect, bool ally, std::array<QLabel *, 4> &values,
-                          std::array<QProgressBar *, 4> &bars) {
-        auto *strip = new QWidget(hud);
-        strip->setAttribute(Qt::WA_TranslucentBackground, true);
-        strip->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-        hudGeometry_.append({strip, rect});
+    auto buildSquad = [&](bool ally, std::array<QLabel *, 4> &values, std::array<TacticalBar *, 4> &bars) {
+        auto *strip = new HudCard(hud);
+        strip->setAccent(ally ? allyAccent : enemyAccent);
+        strip->setOpacityAlpha(132);
+        hudCards_.append(strip);
         auto *column = new QVBoxLayout(strip);
-        column->setContentsMargins(2, 0, 2, 0);
+        column->setContentsMargins(10, 6, 10, 6);
         column->setSpacing(3);
-        const QString accent = (ally ? allyAccent : enemyAccent).name();
-        // 前哨站行（条略粗）
+        const QColor accent = ally ? allyAccent : enemyAccent;
         {
             auto *row = new QHBoxLayout;
-            row->setSpacing(7);
+            row->setSpacing(6);
             auto *name = hudLabel(QStringLiteral("前哨站"), 10, muted, strip);
-            name->setFixedWidth(58);
+            name->setFixedWidth(52);
             hudFonts_.append({name, 10});
-            auto *bar = new QProgressBar(strip);
-            bar->setRange(0, 1000);
-            bar->setTextVisible(false);
+            auto *bar = new TacticalBar(strip);
+            bar->setAccent(accent);
             bar->setFixedHeight(6);
-            auto *value = hudLabel(QStringLiteral("--"), 10, muted, strip);
+            auto *value = hudLabel(QStringLiteral("--"), 10, primary, strip, true);
             value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            value->setFixedWidth(38);
+            value->setFixedWidth(36);
             hudFonts_.append({value, 10});
             row->addWidget(name);
             row->addWidget(bar, 1);
@@ -679,20 +726,16 @@ void Window::buildCombatView() {
         }
         for (int i = 0; i < 4; ++i) {
             auto *row = new QHBoxLayout;
-            row->setSpacing(7);
+            row->setSpacing(6);
             auto *name = hudLabel(QStringLiteral("%1 %2").arg(squadIds.at(i)).arg(squadNames.at(i)), 10, muted, strip);
-            name->setFixedWidth(58);
+            name->setFixedWidth(52);
             hudFonts_.append({name, 10});
-            auto *bar = new QProgressBar(strip);
-            bar->setRange(0, 1000);
-            bar->setTextVisible(false);
+            auto *bar = new TacticalBar(strip);
+            bar->setAccent(accent);
             bar->setFixedHeight(4);
-            bar->setStyleSheet(QStringLiteral(
-                "QProgressBar{background:rgba(255,255,255,22);border:none;border-radius:2px;}"
-                "QProgressBar::chunk{background:%1;border-radius:2px;}").arg(accent));
-            values[static_cast<size_t>(i)] = hudLabel(QStringLiteral("--"), 10, muted, strip);
+            values[static_cast<size_t>(i)] = hudLabel(QStringLiteral("--"), 10, primary, strip);
             values[static_cast<size_t>(i)]->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            values[static_cast<size_t>(i)]->setFixedWidth(38);
+            values[static_cast<size_t>(i)]->setFixedWidth(36);
             hudFonts_.append({values[static_cast<size_t>(i)], 10});
             bars[static_cast<size_t>(i)] = bar;
             row->addWidget(name);
@@ -703,82 +746,67 @@ void Window::buildCombatView() {
         if (ally) hudAllySquad_ = strip;
         else hudEnemySquad_ = strip;
     };
-    buildSquad(QRect(36, 138, 300, 124), true, hudAllyHp_, hudAllyHpBar_);
-    buildSquad(QRect(1584, 138, 300, 124), false, hudEnemyHp_, hudEnemyHpBar_);
+    buildSquad(true, hudAllyHp_, hudAllyHpBar_);
+    buildSquad(false, hudEnemyHp_, hudEnemyHpBar_);
 
-    // 链路卡
-    auto *linkCard = makeCard(QRect(1564, 276, 320, 36));
-    auto *linkLayout = new QHBoxLayout(linkCard);
-    linkLayout->setContentsMargins(14, 0, 14, 0);
-    hudLink_ = hudLabel(QStringLiteral("● 未连接"), 12, muted, linkCard);
-    hudFonts_.append({hudLink_, 12});
+    // 5. 右上角链路状态胶囊
+    hudLinkCard_ = makeCard(ui_theme::kCyan, false, 152);
+    auto *linkLayout = new QHBoxLayout(hudLinkCard_);
+    linkLayout->setContentsMargins(12, 0, 12, 0);
+    hudLink_ = hudLabel(QStringLiteral("● 未连接 · F3 数据 · O 兑换"), 11, muted, hudLinkCard_);
+    hudFonts_.append({hudLink_, 11});
     linkLayout->addWidget(hudLink_);
     linkLayout->addStretch();
 
-    // 本机卡
-    auto *selfCard = makeCard(QRect(36, 944, 430, 100));
-    auto *selfLayout = new QVBoxLayout(selfCard);
-    selfLayout->setContentsMargins(16, 10, 16, 12);
-    selfLayout->setSpacing(4);
+    // 6. 左下角：本机战术卡（带悍匠淡色水印 + 残影血条）
+    hudSelfCard_ = makeCard(ui_theme::kGold, true, 174);
+    auto *selfLayout = new QVBoxLayout(hudSelfCard_);
+    selfLayout->setContentsMargins(14, 10, 14, 10);
+    selfLayout->setSpacing(5);
     auto *selfTop = new QHBoxLayout;
-    selfTop->setSpacing(10);
-    hudSelfId_ = hudLabel(QStringLiteral("--"), 26, brand, selfCard, true);
-    auto *selfRole = hudLabel(roleLabel(), 13, muted, selfCard);
-    hudSelfHp_ = hudLabel(QStringLiteral("-- / --"), 34, primary, selfCard, true);
+    selfTop->setSpacing(8);
+    hudSelfId_ = hudLabel(QStringLiteral("--"), 26, ui_theme::kGoldLight, hudSelfCard_, true);
+    auto *selfRole = hudLabel(roleLabel(), 12, muted, hudSelfCard_);
+    hudSelfHp_ = hudLabel(QStringLiteral("-- / --"), 30, primary, hudSelfCard_, true);
     hudSelfHp_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     hudFonts_.append({hudSelfId_, 26});
-    hudFonts_.append({selfRole, 13});
-    hudFonts_.append({hudSelfHp_, 34});
+    hudFonts_.append({selfRole, 12});
+    hudFonts_.append({hudSelfHp_, 30});
     selfTop->addWidget(hudSelfId_);
     selfTop->addWidget(selfRole);
     selfTop->addStretch();
     selfTop->addWidget(hudSelfHp_);
-    hudSelfBar_ = new QProgressBar(selfCard);
-    hudSelfBar_->setRange(0, 1000);
-    hudSelfBar_->setTextVisible(false);
-    hudSelfBar_->setFixedHeight(5);
-    hudSelfBar_->setStyleSheet(QStringLiteral(
-        "QProgressBar{background:rgba(255,255,255,26);border:none;border-radius:2px;}"
-        "QProgressBar::chunk{background:#ff5a67;border-radius:2px;}"));
-    hudSelfKv_ = hudLabel(QStringLiteral("弹量 --　热量 --　复活 --"), 13, muted, selfCard);
-    hudFonts_.append({hudSelfKv_, 13});
+    hudSelfBar_ = new TacticalBar(hudSelfCard_);
+    hudSelfBar_->setAccent(allyAccent);
+    hudSelfBar_->setFixedHeight(7);
+    hudSelfKv_ = hudLabel(QStringLiteral("弹量 --  ｜  热量 -- / --  ｜  复活 --"), 12, muted, hudSelfCard_);
+    hudFonts_.append({hudSelfKv_, 12});
     selfLayout->addLayout(selfTop);
     selfLayout->addWidget(hudSelfBar_);
     selfLayout->addWidget(hudSelfKv_);
 
-    // 小地图卡
-    auto *mapCard = makeCard(QRect(1584, 788, 300, 256));
-    auto *mapCardLayout = new QVBoxLayout(mapCard);
+    // 7. 中下方：半透明悬浮消息流（自动淡化，不遮挡图传）
+    hudFeed_ = new FloatingMessageFeed(hud);
+
+    // 8. 右下角：半透明悬浮战术小地图（M 键一键缩放/隐藏）
+    hudMapCard_ = makeCard(ui_theme::kGold, false, 172);
+    auto *mapCardLayout = new QVBoxLayout(hudMapCard_);
     mapCardLayout->setContentsMargins(10, 8, 10, 8);
     mapCardLayout->setSpacing(4);
     auto *mapHead = new QHBoxLayout;
-    auto *mapTitle = hudLabel(QStringLiteral("战术地图"), 11, primary, mapCard);
-    hudLegend_ = hudLabel(QStringLiteral("雷达 --"), 11, muted, mapCard);
+    auto *mapTitle = hudLabel(QStringLiteral("TACTICAL MAP // 战术地图"), 10, ui_theme::kGoldLight, hudMapCard_, true);
+    hudLegend_ = hudLabel(QStringLiteral("雷达 -- · M 缩放"), 10, muted, hudMapCard_);
     hudLegend_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    hudFonts_.append({mapTitle, 11});
-    hudFonts_.append({hudLegend_, 11});
+    hudFonts_.append({mapTitle, 10});
+    hudFonts_.append({hudLegend_, 10});
     mapHead->addWidget(mapTitle);
     mapHead->addStretch();
     mapHead->addWidget(hudLegend_);
     mapCardLayout->addLayout(mapHead);
     mapCardLayout->addWidget(mapHud_, 1);
 
-    // 事件条
-    auto *tickerCard = makeCard(QRect(490, 998, 1020, 46));
-    auto *tickerLayout = new QHBoxLayout(tickerCard);
-    tickerLayout->setContentsMargins(16, 0, 16, 0);
-    tickerLayout->setSpacing(12);
-    hudTicker_ = hudLabel(QStringLiteral("● 等待数据"), 13, brand, tickerCard);
-    hudTickerEvent_ = hudLabel(QString(), 12, muted, tickerCard);
-    hudFonts_.append({hudTicker_, 13});
-    hudFonts_.append({hudTickerEvent_, 12});
-    tickerLayout->addWidget(hudTicker_);
-    tickerLayout->addWidget(hudTickerEvent_);
-    tickerLayout->addStretch();
-
-    // 准星（F4 开关，默认开）
+    // 9. 中心动态战术准星（F4 开关，外环热量/血量双弧 + 齿轮刻度）
     crosshair_ = new Crosshair(hud);
-    hudGeometry_.append({crosshair_, QRect(900, 480, 120, 120)});
     crosshair_->setVisible(crosshairAction_ ? crosshairAction_->isChecked() : true);
 
     combat_->setLayoutHandler([this](const QRectF &content) { layoutCombatHud(content); });
@@ -786,116 +814,139 @@ void Window::buildCombatView() {
 }
 
 void Window::layoutCombatHud(const QRectF &content) {
-    if (!combat_) return;
-    hudScale_ = content.width() / 1920.0;
-    if (hudScale_ <= 0.0) return;
-    for (const auto &entry : hudGeometry_) {
-        const QRect &base = entry.second;
-        entry.first->setGeometry(QRect(qRound(base.x() * hudScale_), qRound(base.y() * hudScale_),
-                                       qRound(base.width() * hudScale_), qRound(base.height() * hudScale_)));
+    if (!combat_ || content.width() <= 0 || content.height() <= 0) return;
+    const int W = qRound(content.width());
+    const int H = qRound(content.height());
+    hudScale_ = qBound(0.65, qMin(W / 1920.0, H / 1080.0), 1.30);
+    const auto sc = [this](int px) { return qMax(1, qRound(px * hudScale_)); };
+
+    const int margin = sc(24);
+    const int gap = sc(10);
+    const int sideW = sc(292);
+
+    // 左上角：悍匠 Logo 锚点 -> 己方基地 -> 己方编队
+    const int brandH = sc(64);
+    const int baseH = sc(78);
+    const int squadH = sc(126);
+    if (hudBrandCard_) hudBrandCard_->setGeometry(margin, margin, sideW, brandH);
+    if (hudBrandLogo_) hudBrandLogo_->setBadgeSize(sc(44));
+    if (hudAllyBaseCard_) hudAllyBaseCard_->setGeometry(margin, margin + brandH + gap, sideW, baseH);
+    if (hudAllySquad_) hudAllySquad_->setGeometry(margin, margin + brandH + gap + baseH + gap, sideW, squadH);
+
+    // 顶部居中：战术计时卡
+    const int clockW = sc(252);
+    const int clockH = sc(88);
+    if (hudClockCard_) hudClockCard_->setGeometry((W - clockW) / 2, margin, clockW, clockH);
+
+    // 右上角：敌方基地 -> 敌方编队 -> 链路状态胶囊
+    const int linkH = sc(34);
+    if (hudEnemyBaseCard_) hudEnemyBaseCard_->setGeometry(W - margin - sideW, margin, sideW, baseH);
+    if (hudEnemySquad_) hudEnemySquad_->setGeometry(W - margin - sideW, margin + baseH + gap, sideW, squadH);
+    if (hudLinkCard_) hudLinkCard_->setGeometry(W - margin - sideW, margin + baseH + gap + squadH + gap, sideW, linkH);
+
+    // 左下角：本机卡
+    const int selfW = sc(396);
+    const int selfH = sc(108);
+    if (hudSelfCard_) hudSelfCard_->setGeometry(margin, H - margin - selfH, selfW, selfH);
+
+    // 右下角：悬浮战术小地图（M 键三态：小地图 / 展开大地图 / 隐藏）
+    int mapW = 0;
+    if (hudMapCard_) {
+        if (minimapMode_ == 2) {
+            hudMapCard_->hide();
+        } else {
+            hudMapCard_->show();
+            mapW = minimapMode_ == 1 ? qMin(W - margin * 2 - selfW - sc(40), sc(640)) : sc(348);
+            const int mapH = minimapMode_ == 1 ? qMin(H - margin * 2 - sc(140), sc(410)) : sc(236);
+            hudMapCard_->setGeometry(W - margin - mapW, H - margin - mapH, mapW, mapH);
+        }
     }
+
+    // 中下方：半透明悬浮消息流（自适应居中填在左下本机卡与右下小地图之间）
+    if (hudFeed_) {
+        const int feedLeft = margin + selfW + sc(22);
+        const int feedRight = W - margin - (mapW > 0 ? mapW + sc(22) : 0);
+        const int feedW = qMax(sc(260), qMin(sc(660), feedRight - feedLeft));
+        const int feedH = sc(168);
+        hudFeed_->setGeometry(feedLeft, H - margin - feedH, feedW, feedH);
+        hudFeed_->setScale(hudScale_);
+    }
+
+    // 中心动态战术准星
+    if (crosshair_) {
+        const int ch = sc(156);
+        crosshair_->setGeometry((W - ch) / 2, (H - ch) / 2, ch, ch);
+    }
+
+    // 统一缩放 HUD 字体与切角尺寸
     for (const auto &entry : hudFonts_) {
         const int px = qMax(9, qRound(entry.second * hudScale_));
         QFont font = entry.first->font();
         font.setPixelSize(px);
         entry.first->setFont(font);
-        // 全局 QSS 里有 QWidget{font-size:16px}，会覆盖 setFont；这里用控件级样式表盖回去。
         entry.first->setStyleSheet(QStringLiteral("color:%1;background:transparent;font-size:%2px;")
                                        .arg(entry.first->property("hudColor").toString())
                                        .arg(px));
     }
     for (auto *card : hudCards_)
-        card->setRadius(12.0 * hudScale_);
-    // 卡片内部边距同步缩放，避免小窗口下内容溢出卡片（如计时卡压字）。
-    for (const auto &entry : hudGeometry_) {
-        if (auto *layout = entry.first->layout()) {
-            layout->setContentsMargins(qRound(12 * hudScale_), qRound(6 * hudScale_),
-                                       qRound(12 * hudScale_), qRound(8 * hudScale_));
-            layout->setSpacing(qMax(0, qRound(3 * hudScale_)));
-        }
-    }
-    if (hudSelfBar_) hudSelfBar_->setFixedHeight(qMax(3, qRound(5 * hudScale_)));
-    if (hudAllyBar_) hudAllyBar_->setFixedHeight(qMax(3, qRound(5 * hudScale_)));
-    if (hudEnemyBar_) hudEnemyBar_->setFixedHeight(qMax(3, qRound(5 * hudScale_)));
+        card->setRadius(qMax(6.0, 10.0 * hudScale_));
+
+    if (hudSelfBar_) hudSelfBar_->setFixedHeight(qMax(4, sc(7)));
+    if (hudAllyBar_) hudAllyBar_->setFixedHeight(qMax(4, sc(6)));
+    if (hudEnemyBar_) hudEnemyBar_->setFixedHeight(qMax(4, sc(6)));
 }
 
 void Window::updateCombatHud() {
     if (!combat_) return;
-    // 收到即更新：由 recordMessage 合并触发，这里不再做频率门控。
     const auto number = [](const QJsonObject &object, const char *key, const QString &fallback) {
         const auto value = object.value(QLatin1String(key));
         return value.isDouble() ? QString::number(value.toInt()) : fallback;
     };
     const bool blue = ownSide_ == 1;
+    const QColor allyColor = blue ? ui_theme::kBlue : ui_theme::kRed;
+    const QColor enemyColor = blue ? ui_theme::kRed : ui_theme::kBlue;
 
-    // 阵营配色：己方永远用自己阵营色（蓝方时左列变蓝）
-    const QString allyColor = blue ? QStringLiteral("#3ea8ff") : QStringLiteral("#ff5a67");
-    const QString enemyColor = blue ? QStringLiteral("#ff5a67") : QStringLiteral("#3ea8ff");
-    const auto paintBar = [](QProgressBar *bar, const QString &color) {
-        if (!bar) return;
-        bar->setStyleSheet(QStringLiteral(
-            "QProgressBar{background:rgba(255,255,255,22);border:none;border-radius:2px;}"
-            "QProgressBar::chunk{background:%1;border-radius:2px;}").arg(color));
-    };
-    const auto paintLabel = [](QLabel *l, const QString &c) {
-        if (!l) return;
-        l->setStyleSheet(QStringLiteral("color:%1;background:transparent;").arg(c));
-        l->setProperty("hudColor", c);
-    };
-    paintLabel(hudAllyBase_, QStringLiteral("#eaf1f7"));
-    paintLabel(hudEnemyBase_, QStringLiteral("#eaf1f7"));
-    paintLabel(hudOutpostAlly_, QStringLiteral("#eaf1f7"));
-    paintLabel(hudOutpostEnemy_, QStringLiteral("#eaf1f7"));
-    paintLabel(hudSelfId_, QStringLiteral("#eaf1f7"));
-    paintLabel(hudTicker_, QStringLiteral("#8da0b3"));
-    paintBar(hudAllyBar_, allyColor);
-    paintBar(hudEnemyBar_, enemyColor);
-    paintBar(hudSelfBar_, allyColor);
-    paintBar(hudOutpostAllyBar_, allyColor);
-    paintBar(hudOutpostEnemyBar_, enemyColor);
-    if (hudSelfHp_) hudSelfHp_->setStyleSheet(QStringLiteral("color:#eaf1f7;background:transparent;"));
-    for (auto *bar : hudAllyHpBar_) paintBar(bar, allyColor);
-    for (auto *bar : hudEnemyHpBar_) paintBar(bar, enemyColor);
+    if (hudAllyBaseCard_) hudAllyBaseCard_->setAccent(allyColor);
+    if (hudEnemyBaseCard_) hudEnemyBaseCard_->setAccent(enemyColor);
+    if (hudAllyBar_) hudAllyBar_->setAccent(allyColor);
+    if (hudEnemyBar_) hudEnemyBar_->setAccent(enemyColor);
+    if (hudSelfBar_) hudSelfBar_->setAccent(allyColor);
+    if (hudOutpostAllyBar_) hudOutpostAllyBar_->setAccent(allyColor);
+    if (hudOutpostEnemyBar_) hudOutpostEnemyBar_->setAccent(enemyColor);
+    for (auto *bar : hudAllyHpBar_) if (bar) bar->setAccent(allyColor);
+    for (auto *bar : hudEnemyHpBar_) if (bar) bar->setAccent(enemyColor);
 
-    // 协议字段基于“己方/敌方”命名：base_health=己方基地，enemy_base_health=敌方基地，
-    // 不随红蓝变化，直接对应左（己方）右（敌方）。只有 outpost_R/B 是按红蓝命名的，需要按阵营翻转。
+    // 基地与前哨站血量
     const auto unit = messageFields("GlobalUnitStatus");
-    const qint64 unitAge = dataAgeMs("GlobalUnitStatus");
-    const bool unitStale = unitAge < 0 || unitAge > 3000;
     const auto baseAlly = number(unit, "baseHealth", QStringLiteral("--"));
     const auto baseEnemy = number(unit, "enemyBaseHealth", QStringLiteral("--"));
     if (hudAllyBase_) hudAllyBase_->setText(baseAlly);
     if (hudEnemyBase_) hudEnemyBase_->setText(baseEnemy);
-    if (hudAllyBaseName_) hudAllyBaseName_->setText(QStringLiteral("己方基地 · %1").arg(blue ? QStringLiteral("BLUE BASE") : QStringLiteral("RED BASE")));
-    if (hudEnemyBaseName_) hudEnemyBaseName_->setText(QStringLiteral("敌方基地 · %1").arg(blue ? QStringLiteral("RED BASE") : QStringLiteral("BLUE BASE")));
+    if (hudAllyBaseName_) hudAllyBaseName_->setText(QStringLiteral("己方基地 // %1").arg(blue ? QStringLiteral("BLUE BASE") : QStringLiteral("RED BASE")));
+    if (hudEnemyBaseName_) hudEnemyBaseName_->setText(QStringLiteral("敌方基地 // %1").arg(blue ? QStringLiteral("RED BASE") : QStringLiteral("BLUE BASE")));
+
     const int baseMax = qEnvironmentVariableIntValue("HJ_BASE_MAX_HP") > 0
         ? qEnvironmentVariableIntValue("HJ_BASE_MAX_HP") : demoMode_ ? 5000 : 0;
-    for (auto *bar : {hudAllyBar_, hudEnemyBar_}) {
-        if (!bar) continue;
-        const QString text = bar == hudAllyBar_ ? baseAlly : baseEnemy;
+    const auto updateBar = [](TacticalBar *bar, const QString &text, int maxVal) {
+        if (!bar) return;
         bool ok = false;
-        const uint value = text.toUInt(&ok);
-        if (ok && baseMax > 0 && value <= static_cast<uint>(baseMax)) bar->setValue(static_cast<int>(qint64(value) * 1000 / baseMax));
+        const uint v = text.toUInt(&ok);
+        if (ok && maxVal > 0 && v <= static_cast<uint>(maxVal)) bar->setRatio(static_cast<qreal>(v) / maxVal);
         else bar->reset();
-    }
+    };
+    updateBar(hudAllyBar_, baseAlly, baseMax);
+    updateBar(hudEnemyBar_, baseEnemy, baseMax);
+
     const auto outpostAlly = number(unit, blue ? "outpostBHealth" : "outpostRHealth", QStringLiteral("--"));
     const auto outpostEnemy = number(unit, blue ? "outpostRHealth" : "outpostBHealth", QStringLiteral("--"));
     if (hudOutpostAlly_) hudOutpostAlly_->setText(outpostAlly);
     if (hudOutpostEnemy_) hudOutpostEnemy_->setText(outpostEnemy);
     const int outpostMax = qEnvironmentVariableIntValue("HJ_OUTPOST_MAX_HP") > 0
         ? qEnvironmentVariableIntValue("HJ_OUTPOST_MAX_HP") : 700;
-    const auto paintOutpostBar = [outpostMax](QProgressBar *bar, const QString &text) {
-        if (!bar) return;
-        bool ok = false;
-        const uint value = text.toUInt(&ok);
-        if (ok && value <= static_cast<uint>(outpostMax)) bar->setValue(static_cast<int>(qint64(value) * 1000 / outpostMax));
-        else bar->reset();
-    };
-    paintOutpostBar(hudOutpostAllyBar_, outpostAlly);
-    paintOutpostBar(hudOutpostEnemyBar_, outpostEnemy);
-    // 控制度/伤害不再放在作战视图（移到数据视图的数据计算区）
+    updateBar(hudOutpostAllyBar_, outpostAlly, outpostMax);
+    updateBar(hudOutpostEnemyBar_, outpostEnemy, outpostMax);
 
-    // 计时 / 比分
+    // 计时与比分
     const auto game = messageFields("GameStatus");
     const qint64 gameAge = dataAgeMs("GameStatus");
     const bool gameStale = gameAge < 0 || gameAge > 3000;
@@ -908,52 +959,65 @@ void Window::updateCombatHud() {
             hudClock_->setText(QStringLiteral("--:--"));
         }
     }
-    if (hudStage_) {
-        hudStage_->clear();
-        hudStage_->hide();
-    }
     if (hudScore_) {
         const auto red = number(game, "redScore", QStringLiteral("--"));
         const auto blueScore = number(game, "blueScore", QStringLiteral("--"));
-        hudScore_->setText(QStringLiteral("%1 : %2").arg(red, blueScore));
+        hudScore_->setText(QStringLiteral("RED %1  :  %2 BLUE").arg(red, blueScore));
     }
 
-    // 链路
+    // 链路与快捷提示
     if (hudLink_) {
-        hudLink_->setText(QStringLiteral("%1 · 图传 %2").arg(connected_ ? QStringLiteral("● 已连接") : QStringLiteral("● 未连接"),
-                                                           gotVideo_ ? QStringLiteral("正常") : QStringLiteral("等待首帧")));
-        hudLink_->setStyleSheet(QStringLiteral("color:#8da0b3;background:transparent;"));
+        hudLink_->setText(QStringLiteral("%1 · 图传 %2 · F3 数据 · O 兑换")
+                              .arg(connected_ ? QStringLiteral("● 已连接") : QStringLiteral("● 未连接"),
+                                   gotVideo_ ? QStringLiteral("正常") : QStringLiteral("待机")));
     }
 
-    // 本机
+    // 本机状态 + 中心准星双弧遥测同步
     const auto dynamic = messageFields("RobotDynamicStatus");
     const auto respawn = messageFields("RobotRespawnStatus");
+    const auto staticSt = messageFields("RobotStaticStatus");
     const auto hp = number(dynamic, "currentHealth", QStringLiteral("--"));
     int maxHp = 0;
     if (ownSide_ >= 0) {
-        const int index = (ownSide_ == 0 ? 0 : 4);
+        const int ids[] = {1, 3, 4, 7};
+        int slot = 0;
+        for (int i = 0; i < 4; ++i) if (ids[i] == static_cast<int>(number_)) slot = i;
+        const int index = (ownSide_ == 0 ? 0 : 4) + slot;
         maxHp = static_cast<int>(maxHealth_[static_cast<size_t>(index)]);
         if (maxHealthAt_[static_cast<size_t>(index)] < 0) maxHp = 0;
     }
     if (hudSelfId_) hudSelfId_->setText(number_ > 0 ? QStringLiteral("%1").arg(number_, 2, 10, QLatin1Char('0')) : QStringLiteral("--"));
     if (hudSelfHp_) hudSelfHp_->setText(maxHp > 0 ? QStringLiteral("%1 / %2").arg(hp).arg(maxHp) : QStringLiteral("%1 / --").arg(hp));
+
+    qreal hpRatio = -1.0;
     if (hudSelfBar_) {
         bool ok = false;
         const int value = hp.toInt(&ok);
-        if (ok && maxHp > 0 && value <= maxHp) hudSelfBar_->setValue(value * 1000 / maxHp);
-        else hudSelfBar_->reset();
-    }
-    if (hudSelfKv_) {
-        const auto ammo = number(dynamic, "remainingAmmo", QStringLiteral("--"));
-        const auto heat = number(dynamic, "currentHeat", QStringLiteral("--"));
-        const auto maxHeat = number(messageFields("RobotStaticStatus"), "maxHeat", QStringLiteral("--"));
-        const bool pending = respawn.value(QStringLiteral("isPendingRespawn")).toBool();
-        hudSelfKv_->setText(QStringLiteral("弹量 %1　热量 %2 / %3　复活 %4")
-                                .arg(ammo, heat, maxHeat, pending ? QStringLiteral("等待") : QStringLiteral("无需")));
+        if (ok && maxHp > 0 && value <= maxHp) {
+            hpRatio = static_cast<qreal>(value) / maxHp;
+            hudSelfBar_->setRatio(hpRatio);
+        } else {
+            hudSelfBar_->reset();
+        }
     }
 
-    // 双方机体血条
-    const auto setSquadRow = [this](std::array<QLabel *, 4> &values, std::array<QProgressBar *, 4> &bars, int i, int index) {
+    qreal heatRatio = -1.0;
+    if (hudSelfKv_) {
+        const auto ammo = number(dynamic, "remainingAmmo", QStringLiteral("--"));
+        const auto heatVal = dynamic.value(QStringLiteral("currentHeat"));
+        const auto maxHeatVal = staticSt.value(QStringLiteral("maxHeat"));
+        const QString heatStr = heatVal.isDouble() ? QString::number(heatVal.toDouble(), 'f', 0) : QStringLiteral("--");
+        const QString maxHeatStr = maxHeatVal.isDouble() ? QString::number(maxHeatVal.toInt()) : QStringLiteral("--");
+        if (heatVal.isDouble() && maxHeatVal.isDouble() && maxHeatVal.toDouble() > 0.0)
+            heatRatio = heatVal.toDouble() / maxHeatVal.toDouble();
+        const bool pending = respawn.value(QStringLiteral("isPendingRespawn")).toBool();
+        hudSelfKv_->setText(QStringLiteral("弹量 %1  ｜  热量 %2 / %3  ｜  复活 %4")
+                                .arg(ammo, heatStr, maxHeatStr, pending ? QStringLiteral("等待") : QStringLiteral("就绪")));
+    }
+    if (crosshair_) crosshair_->setTelemetry(heatRatio, hpRatio);
+
+    // 双方编队血条
+    const auto setSquadRow = [this](std::array<QLabel *, 4> &values, std::array<TacticalBar *, 4> &bars, int i, int index) {
         auto *bar = bars[static_cast<size_t>(i)];
         auto *value = values[static_cast<size_t>(i)];
         if (!bar || !value) return;
@@ -965,7 +1029,7 @@ void Window::updateCombatHud() {
             value->setText(idx < health_.size() ? QString::number(health_[idx]) : QStringLiteral("--"));
             return;
         }
-        bar->setValue(static_cast<int>(static_cast<uint64_t>(health_[idx]) * 1000 / maxHealth_[idx]));
+        bar->setRatio(static_cast<qreal>(health_[idx]) / maxHealth_[idx]);
         value->setText(QString::number(health_[idx]));
     };
     for (int i = 0; i < 4; ++i) {
@@ -973,25 +1037,17 @@ void Window::updateCombatHud() {
         setSquadRow(hudEnemyHp_, hudEnemyHpBar_, i, i + 4);
     }
 
-    // 地图标记：自己的 id + 双方血量
+    // 地图标记同步
     const uint ownId = number_ > 0 ? static_cast<uint>(number_ + (ownSide_ == 1 ? 100 : 0)) : 0;
     const std::vector<uint32_t> maxHealth(maxHealth_.begin(), maxHealth_.end());
     for (auto *m : {map_, mapHud_})
         if (m) m->setStatus(ownId, health_, maxHealth);
 
-    // 事件条
-    if (hudTicker_ && alert_) hudTicker_->setText(alert_->text().isEmpty() ? QStringLiteral("● 等待数据") : alert_->text());
-    if (hudTickerEvent_ && events_ && events_->count() > 0) {
-        QString detail = events_->item(events_->count() - 1)->text();
-        detail.remove(QRegularExpression(QStringLiteral("第 \\d+ / \\d+ 局 · ")));
-        detail.remove(QStringLiteral("· 比赛中"));
-        hudTickerEvent_->setText(QStringLiteral("｜　") + detail);
-    }
     if (hudLegend_) {
         const qint64 radarAge = dataAgeMs("RadarInfoToClient");
-        hudLegend_->setText(radarAge < 0 ? QStringLiteral("雷达 --") : QStringLiteral("雷达 %1s 前").arg(radarAge / 1000));
+        hudLegend_->setText(radarAge < 0 ? QStringLiteral("雷达 -- · M 缩放")
+                                         : QStringLiteral("雷达 %1s 前 · M 缩放").arg(radarAge / 1000));
     }
-    Q_UNUSED(unitStale);
 }
 
 void Window::buildExchangePanel() {
